@@ -1462,6 +1462,7 @@ class EmailReport(object):
     def pytest_terminal_summary(self, terminalreporter):
         '''this hook is the execution point of email plugin'''
         self._generate_email_report(terminalreporter)
+        self._generate_all_star_log_html()
         self._generate_all_log_html()
         if self.CAFY_REPO:
             option = terminalreporter.config.option
@@ -1542,6 +1543,16 @@ class EmailReport(object):
                 if processed_log_line:
                     log_grouping.append_log_line(LogLine(html.escape(processed_log_line.group(2)), processed_log_line.group(1).upper()))
         return all_log_groupings
+    
+    def _generate_all_star_log_html(self):
+        log_file_name = os.path.join(CafyLog.work_dir, "all.log")
+        try:
+            output_file_name = os.path.join(CafyLog.work_dir, "star.log.html")
+            log_update_file = "logupdate.py"
+            cmd = "python {log_update_file} {input_file} > {output_file}".format(log_update_file = log_update_file, input_file = log_file_name, output_file = output_file_name)
+            subprocess.Popen(cmd, shell=True)
+        except FileNotFoundError:
+            return
 
     def _generate_all_log_html(self):
         log_file_name = os.path.join(CafyLog.work_dir, "all.log")
