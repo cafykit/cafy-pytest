@@ -11,18 +11,33 @@
         color: blue;
         white-space: pre;
       }
+      .info-toggle {
+        display: block;
+      }
       .warning-log {
         color: darkorange;
+      }
+      .warning-toggle {
+        display: block;
       }
       .error-log {
         color: red;
         font-weight: bold;
       }
+      .error-toggle {
+        display: block;
+      }
       .debug-log {
         color: mediumvioletred;
       }
+      .debug-toggle {
+        display: block;
+      }
       .success-log {
-        color: green
+        color: green;
+      }
+      .success-toggle {
+        display: block;
       }
       .panel-group .panel-heading + .panel-collapse > .panel-body {
         border: 1px solid #ddd;
@@ -91,6 +106,61 @@
   <body>
     <h2>Logs</h3>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+    <script>
+      $(document).ready(function(){
+        $(".button_Info").click(function(){
+          $(".info-toggle").toggle();
+        });
+      });
+      
+      $(document).ready(function(){
+        $(".button_Debug").click(function(){
+          $(".debug-toggle").toggle();
+        });
+      });
+      
+      $(document).ready(function(){
+        $(".button_Error").click(function(){
+          $(".error-toggle").toggle();
+        });
+      });
+      
+      $(document).ready(function(){
+        $(".button_Warning").click(function(){
+          $(".warning-toggle").toggle();
+        });
+      });
+      
+      $(document).ready(function(){
+        $(".button_Success").click(function(){
+          $(".success-toggle").toggle();
+        });
+      });
+
+      $(document).ready(function(){
+        $("button").click(function(){
+          var el = $(this);
+          el.text() == el.data("text-swap") 
+            ? el.text(el.data("text-original")) 
+            : el.text(el.data("text-swap"));
+        });
+      });
+
+      $(document).ready(function(){
+      $(".collapsed").click(function(){
+          $(".info-toggle").css("display", "block");
+          $(".debug-toggle").css("display", "block");
+          $(".error-toggle").css("display", "block");
+          $(".warning-toggle").css("display", "block");
+          $(".success-toggle").css("display", "block");
+          $(".button_Info").text($(".button_Info").data("text-original"));
+          $(".button_Warning").text($(".button_Warning").data("text-original"));
+          $(".button_Success").text($(".button_Success").data("text-original"));
+          $(".button_Debug").text($(".button_Debug").data("text-original"));
+          $(".button_Error").text($(".button_Error").data("text-original"));
+        }); 
+      });
+    </script>
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
     <div class="panel-group" id="accordion" role="tablist" aria-multiselectable="true">
       
@@ -102,20 +172,35 @@
           </h4>
         </div>
         <div id="collapse{{loop.index}}" class="panel-collapse collapse" role="tabpanel" aria-labelledby="heading{{loop.index}}">
+          {% if "INFO" in log_grouping.get_log_lines()|map(attribute="type") %}
+            <button class="button_Info" data-text-swap="Enable Info Filter" data-text-original="Disable Info Filter">Disable Info Filter</button>
+          {% endif %}
+          {% if "ERROR" in log_grouping.get_log_lines()|map(attribute="type") or 'LIBERR' in log_grouping.get_log_lines()|map(attribute="type") %}
+            <button class="button_Error" data-text-swap="Enable Error Filter" data-text-original="Disable Error Filter">Disable Error Filter</button>
+          {% endif %}
+          {% if "DEBUG" in log_grouping.get_log_lines()|map(attribute="type") %}
+            <button class="button_Debug" data-text-swap="Enable Debug Filter" data-text-original="Disable Debug Filter">Disable Debug Filter</button>
+          {% endif %}
+          {% if "SUCCESS" in log_grouping.get_log_lines()|map(attribute="type") %}
+            <button class="button_Success" data-text-swap="Enable Success Filter" data-text-original="Disable Success Filter">Disable Success Filter</button>
+          {% endif %}
+          {% if "WARNING" in log_grouping.get_log_lines()|map(attribute="type") %}
+            <button class="button_Warning" data-text-swap="Enable Warning Filter" data-text-original="Disable Warning Filter">Disable Warning Filter</button>
+          {% endif %}
           <div class="panel-body">
             {% for log_line in log_grouping.get_log_lines() %}
               {% if 'WARNING' == log_line.type %}
-                <div class="warning-log">{{ log_line.line }}</div>
+                <div class="warning-log warning-toggle">{{ log_line.line }}</div>
               {% elif 'DEBUG' == log_line.type %}
-                <div class="debug-log">{{ log_line.line }}</div>
+                <div class="debug-log debug-toggle">{{ log_line.line }}</div>
               {% elif 'ERROR' == log_line.type %}
-                <div class="error-log">{{ log_line.line }}</div>
+                <div class="error-log error-toggle">{{ log_line.line }}</div>
               {% elif 'LIBERR' == log_line.type %}
-                <div class="error-log">{{ log_line.line }}</div>
+                <div class="error-log error-toggle">{{ log_line.line }}</div>
               {% elif 'SUCCESS' == log_line.type %}
-                <div class="success-log">{{ log_line.line }}</div>
+                <div class="success-log success-toggle">{{ log_line.line }}</div>
               {% else %}
-                <div class="info-log">{{ log_line.line }}</div>
+                <div class="info-log info-toggle">{{ log_line.line }}</div>
               {% endif %} 
             {% endfor %}
           </div>
