@@ -1541,6 +1541,9 @@ class EmailReport(object):
                 processed_log_line = split_log_line.search(log_line)
                 if processed_log_line:
                     log_grouping.append_log_line(LogLine(html.escape(processed_log_line.group(2)), processed_log_line.group(1).upper()))
+                else:
+                    log_grouping.append_log_line(LogLine(html.escape(log_line), 'OUT'))
+
         return all_log_groupings
 
     def _generate_all_log_html(self):
