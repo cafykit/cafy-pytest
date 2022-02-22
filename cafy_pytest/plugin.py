@@ -784,6 +784,11 @@ class EmailReport(object):
         self.testcase_time = defaultdict(
             lambda : {'start_time': None, 'end_time': None})
         self.testcase_failtrace_dict = OrderedDict()
+        #dict to have testcase as key and reproting status as value
+        self.hybrid_mode_status_dict={}
+        #list to find mode such as cli,ydk,oc
+        self.mode_list=['cli','ydk','oc']
+        self.report_dump={}
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -813,11 +818,20 @@ class EmailReport(object):
 
     def _generate_with_template(self, terminalreporter):
         '''generate report using template'''
-        cafy_kwargs = {'terminalreporter': terminalreporter,
-                       'testcase_dict': self.testcase_dict,
-                       'testcase_failtrace_dict':self.testcase_failtrace_dict,
-                       'archive': self.archive,
-                       'topo_file': self.topo_file}
+        #additional field of hybrid_mode_status_dict for html template in order display mode of each testcase in email report
+        if CafyLog.hybrid_mode_dict['mode']:
+            cafy_kwargs = {'terminalreporter': terminalreporter,
+                           'testcase_dict': self.testcase_dict,
+                           'testcase_failtrace_dict':self.testcase_failtrace_dict,
+                           'archive': self.archive,
+                           'topo_file': self.topo_file,
+                           'hybrid_mode_status_dict':self.hybrid_mode_status_dict}
+        else:
+            cafy_kwargs = {'terminalreporter': terminalreporter,
+                           'testcase_dict': self.testcase_dict,
+                           'testcase_failtrace_dict':self.testcase_failtrace_dict,
+                           'archive': self.archive,
+                           'topo_file': self.topo_file}
         report = CafyReportData(**cafy_kwargs)
         setattr(report,"tabulate_html", self.tabulate_html)
         template_file = os.path.join(self.CURRENT_DIR,
@@ -1063,6 +1077,97 @@ class EmailReport(object):
             result += "</div>"
         result += "</body></html>"
         return result
+    """
+    method:get_final_status
+    1. apply anding logic over the mode_list
+       and return the anding value of all modes
+    2. ex: if all mode =ydk then anding mode =ydk
+       if all mode =cli then anding mode=cli
+       if all mode=oc the anding mode=oc
+       if mode list =['ydk','cli'] then anding mode='cli'
+       if mode list=['oc','cli','cli'] the anding mode='cli'
+    """
+    def get_final_status(self,mode_list):
+        final_mode=""
+        if(len(mode_list)>0):
+            if 'cli' in mode_list:
+                return 'cli'
+            else:
+                final_mode=mode_list[0]
+                for mode in mode_list:
+                    final_mode=final_mode and mode
+                return final_mode
+        return final_mode
+
+    """
+    method:get_status
+    1. take input as mode result of qualname on method
+    2. running_mode var hold split value of mode by dot
+    3. loop over mode_list if mode equal to running_mode then
+       status value will be ydk,cli,or oc
+    4. else if flag is false and method landed to Base class
+       then status will be based on mode provided by user
+    """
+    def get_status(self,mode):
+        try:
+            running_mode=mode.split('.')[0].lower()
+            status=''
+            flag=False
+            for v in self.mode_list:
+                if v in running_mode:
+                    status=v
+                    flag=True
+                    break
+            if not(flag):
+                if CafyLog.hybrid_mode_dict['mode']=='oc':
+                    status='oc'
+                elif CafyLog.hybrid_mode_dict['mode']=='cli':
+                    status='cli'
+                else:
+                    status='ydk'
+            return status
+        except Exception as e:
+            return e
+
+    """
+    method:get_mode
+    1. take input as method_list returned by get_method
+    2. loop over method_list for each method call qualname and get_status method
+       which return mode like ydk,cli,or oc based on running mode of method and
+       append the mode to mode_list
+    3. return the mode_list for final mode determination
+    """
+    def get_mode(self,method_list):
+        mode_list=[]
+        for method in method_list:
+            try:
+                mode=method.__qualname__
+                mode_list.append(self.get_status(mode))
+            except Exception as e:
+                mode_list.append(e)
+        return mode_list
+
+    """
+    method:get_method
+    1. loop over all functions of feature_lib inherited class stored in cafylog hybrid_mode_dict
+    2. on each testcase running when any function from feature_lib class invoked for execution
+       then its has_been_called attribute which seted dyanimically using decorator in meta class
+       will seted to True and its detected when flag is True
+    3. if has_been_called attribute is True append it to method list else continue
+    4. after appending detected method to method_list make the has_been_called False
+    5. return method_list for determination of modes of each method in method_list
+    """
+    def get_method(self):
+        method_list=[]
+        for cls in CafyLog.hybrid_mode_dict['cls']:
+            for name, method in inspect.getmembers(cls, inspect.isfunction):
+                try:
+                   if method.has_been_called==True and not name.startswith("__") and not name.startswith("_"):
+                       method.has_been_called=False
+                       method_list.append(method)
+                except Exception as e:
+                      continue
+        return method_list
 
     pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report):
@@ -1165,7 +1270,28 @@ class EmailReport(object):
 
                 except Exception as e:
                     self.log.warning("Error while sending the live status of executed testcases: {}".format(e))
-
+            """
+            1. method:get_method gives output list of methods (one or more than one) presents per testcase
+            2. method:get_mode take input of list of methods and gives output as mode such as cli,ydk or oc for each method as list of mode
+            3. method:get_final_status take of list of mode and gives final reporting of testcase as ydk,cli or oc using anding logic on
+               list of mode
+            4. method_mode_dict will keep the info of all methods and mode in which it runned, fianl status, ydk coverage , cli coverage
+               and oc coverage as percentage in the form of dict and finally will be dump as json file in work_dir
+            """
+            method_mode_dict={}
+            method_list=self.get_method()
+            mode_list=self.get_mode(method_list)
+            final_status=self.get_final_status(mode_list)
+            self.hybrid_mode_status_dict[testcase_name]=final_status
+            for item in range(0,len(method_list)):
+                method_mode_dict[str(method_list[item].__name__)]=mode_list[item]
+            self.report_dump[testcase_name]={}
+            self.report_dump[testcase_name]['method_mode']=method_mode_dict
+            self.report_dump[testcase_name]['final_status']=final_status
+            if mode_list:
+                self.report_dump[testcase_name]['ydk_percentage']= (mode_list.count('ydk')/len(mode_list))*100
+                self.report_dump[testcase_name]['cli_percentage']= (mode_list.count('cli')/len(mode_list))*100
+                self.report_dump[testcase_name]['oc_percentage']= (mode_list.count('oc')/len(mode_list))*100
 
             self.log.title("Finish test: %s (%s)" %(testcase_name,status))
             self.log.info("="*80)
@@ -1505,7 +1631,12 @@ class EmailReport(object):
                 self.log.error("Http call to root cause service url:%s is not successful" % url)
                 return None
 
-
+    #method: To dump the mode report as testcase_mode.json file in work_dir
+    def dump_hybrid_mode_report(self):
+        path=CafyLog.work_dir
+        file_name='testcase_mode.json'
+        with open(os.path.join(path, file_name), 'w') as fp:
+            json.dump(self.report_dump,fp)
 
     def pytest_terminal_summary(self, terminalreporter):
         '''this hook is the execution point of email plugin'''
@@ -1525,18 +1656,33 @@ class EmailReport(object):
                     copyfile(_junitxml_filename, junitxml_file_path)
                     os.chmod(junitxml_file_path, 0o775)
 
-        terminalreporter.write_line("\n TestCase Summary Status Table")
-        temp_list = []
-        for k,v in self.testcase_dict.items():
-            try:
-                message = v.message.chain[0][1].message
-            except:
-                message = v.message
-            temp_list.append((v.name, v.status))
-        headers = ['Testcase_name', 'Status']
-        self.tabulate_result = tabulate(temp_list, headers=headers[:], tablefmt='grid')
+        # if mode present then print the reporting mode of per testcase as separate coloumn Testcase_mode else report same as ealier
+        if CafyLog.hybrid_mode_dict['mode']:
+           terminalreporter.write_line("\n TestCase Summary Status Table")
+           hybrid_mode_test_list = []
+           hybrid_mode_dict=self.hybrid_mode_status_dict
+           mode_status=""
+           for k,v in self.testcase_dict.items():
+               if v.name in hybrid_mode_dict.keys():
+                  mode_status=hybrid_mode_dict[v.name]
+               hybrid_mode_test_list.append([v.name, v.status,mode_status])
+           headers = ['Testcase_name', 'Status','Testcase_mode']
+           self.tabulate_result = tabulate(hybrid_mode_test_list, headers=headers[:], tablefmt='grid')
+           terminalreporter.write_line(self.tabulate_result)
+        else:
+           terminalreporter.write_line("\n TestCase Summary Status Table")
+           temp_list = []
 
-        terminalreporter.write_line(self.tabulate_result)
+           for k,v in self.testcase_dict.items():
+               try:
+                   message = v.message.chain[0][1].message
+               except:
+                   message = v.message
+               temp_list.append((v.name, v.status))
+           headers = ['Testcase_name', 'Status']
+           self.tabulate_result = tabulate(temp_list, headers=headers[:], tablefmt='grid')
+           terminalreporter.write_line(self.tabulate_result)
+        self.dump_hybrid_mode_report()
         terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
         terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
 
@@ -1756,10 +1902,11 @@ class CafyReportData(object):
     testcase = namedtuple('testcase', ['name', 'result', 'fail_log', 'url'])
     summary = namedtuple('summary', ['passed', 'failed', 'not_run', 'total'])
 
-    def __init__(self, terminalreporter, testcase_dict, testcase_failtrace_dict, archive, topo_file):
+    def __init__(self, terminalreporter, testcase_dict, testcase_failtrace_dict, archive, topo_file,hybrid_mode_status_dict=None):
         self.terminalreporter = terminalreporter
         self.testcase_dict = testcase_dict
         self.testcase_failtrace_dict = testcase_failtrace_dict
+        self.hybrid_mode_status_dict=hybrid_mode_status_dict
         self.start = EmailReport.START
         self.start_time = EmailReport.START_TIME
         # Basic details
