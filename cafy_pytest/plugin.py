@@ -1198,6 +1198,7 @@ class EmailReport(object):
         if report.when == 'setup':
             self.log.set_testcase(testcase_name)
             self.log.title("Start test:  %s" %(testcase_name))
+            self.log.title("Recursionlimit at start of %s: %d" % (testcase_name, len(inspect.stack(0))))
             #Notify testcase_name to handshake server
             #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to handshake server
             if self.reg_dict:
@@ -1317,6 +1318,7 @@ class EmailReport(object):
                 self.report_dump[testcase_name]['oc_percentage']= (mode_list.count('oc')/len(mode_list))*100
 
             self.log.title("Finish test: %s (%s)" %(testcase_name,status))
+            self.log.title("Recursionlimit after end of %s: %d" % (testcase_name, len(inspect.stack(0))))
             self.log.info("="*80)
 
         #The following if block is executed for @pytest.mark.xfail(run=False) and
