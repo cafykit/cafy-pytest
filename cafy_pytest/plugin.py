@@ -1199,6 +1199,8 @@ class EmailReport(object):
             self.log.set_testcase(testcase_name)
             self.log.title("Start test:  %s" %(testcase_name))
             self.log.title("Recursionlimit at start of %s: %d" % (testcase_name, len(inspect.stack(0))))
+            self.log.info("Seting recursiondepth limit to 5000")
+            sys.setrecursionlimit(5000)
             #Notify testcase_name to handshake server
             #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to handshake server
             if self.reg_dict:
