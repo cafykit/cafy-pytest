@@ -51,9 +51,14 @@ from debug import DebugLibrary
 import pluggy
 import _pytest
 
+#Check if CONTAINER_MODE env variable is set, this mode is set when cafykit scripts are run using docker/podman
+CONTAINER_MODE = os.environ.get("CONTAINER_MODE", None)
+
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
+
+
 setattr(pytest,"allure",allure)
 if CAFY_REPO is None:
     #If CAFYAP_REPO is not set, check if GIT_REPO or CAFYKIT_HOME is set
@@ -68,11 +73,15 @@ if CAFY_REPO is None:
             if os.path.exists(os.path.join(CAFY_REPO, 'work', 'pytest_cafy_config.yaml')):
                 os.environ['CAFY_REPO'] = CAFY_REPO
                 print('GIT_REPO variable has been set to correct repo')
+                if CONTAINER_MODE:
+                    CONTAINER_MODE_CAFY_REPO = os.environ.get("HOST_GIT_REPO", None)
             else:
                 msg = 'GIT_REPO has not been set to correct repo'
                 pytest.exit(msg)
 else:
     os.environ['CAFY_REPO'] = CAFY_REPO
+    if CONTAINER_MODE:
+        CONTAINER_MODE_CAFY_REPO = os.environ.get("HOST_CAFYAP_REPO", None)
 
 if not CAFY_REPO:
     msg = "Please set the environment variable GIT_REPO or CAFYKIT_HOME or CAFYAP_REPO "
@@ -367,12 +376,20 @@ def pytest_configure(config):
                 if os.path.exists(config.option.workdir):
                     custom_workdir = config.option.workdir
                     work_dir = custom_workdir
+                    if CONTAINER_MODE:
+                        if os.environ.get("HOST_WORK_DIR", None):
+                            container_mode_work_dir = os.environ.get("HOST_WORK_DIR")
                 else:
                     print('workdir path not found: {}'.format(config.option.workdir))
                     pytest.exit('workdir path not found')
             else:
                 if CAFY_REPO:
                     work_dir = os.path.join(CAFY_REPO, 'work', "archive", work_dir_name)
+                    if CONTAINER_MODE:
+                        if CONTAINER_MODE_CAFY_REPO:
+                            container_mode_work_dir = os.path.join(
+                                CONTAINER_MODE_CAFY_REPO, 'work', "archive", work_dir_name)
+
         else:
             if os.path.exists(config.option.reportdir):
                 work_dir = os.path.join(config.option.reportdir, work_dir_name)
@@ -545,7 +562,10 @@ def pytest_configure(config):
         reporter = TerminalReporter(config, sys.stdout)
         #reporter.write_line("all.log location: %s" %CafyLog.work_dir)
         reporter.write_line("Virtual Env: %s" %(os.getenv("VIRTUAL_ENV")))
-        reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
+        if CONTAINER_MODE:
+            reporter.write_line("Complete Log Location: %s/all.log" % container_mode_work_dir)
+        else:
+            reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
         reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
 
 
@@ -793,6 +813,8 @@ class EmailReport(object):
             #self.archive_name = CafyLog.work_dir + '.zip'
             #self.archive = os.path.join(CafyLog.work_dir, self.archive_name)
             self.archive = CafyLog.work_dir
+            if CONTAINER_MODE:
+                self.host_archive = container_mode_work_dir
             self.email_report = os.path.join(CafyLog.work_dir,
                                              email_report)
         else:
@@ -1748,8 +1770,14 @@ class EmailReport(object):
            self.tabulate_result = tabulate(temp_list, headers=headers[:], tablefmt='grid')
            terminalreporter.write_line(self.tabulate_result)
         self.dump_model_coverage_report()
-        terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
-        terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
+        if CONTAINER_MODE:
+            terminalreporter.write_line("Results: {work_dir}".format(work_dir=container_mode_work_dir))
+            terminalreporter.write_line(
+                "Reports: {allure_html_report}".format(allure_html_report=self.host_allure_html_report))
+        else:
+            terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
+
+            terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
 
         self._generate_email_report(terminalreporter)
 
@@ -1856,9 +1884,17 @@ class EmailReport(object):
         CafyLog.htmlfile_link = allure_report
         allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
         self.allure_html_report = allure_html_report
+        if CONTAINER_MODE:
+            host_allure_report_dir = os.path.join(self.host_archive,"reports")
+            host_allure_report = os.path.join(host_allure_report_dir,"index.html")
+            host_allure_html_report = os.path.join(_CafyConfig.allure_server,host_allure_report.strip("/"))
+            self.host_allure_html_report = host_allure_html_report
         os.system(cmd)
         #print("Report Generated at: {allure_report}".format(allure_report=allure_report))
-        self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
+        if CONTAINER_MODE:
+            self.log.info("Report: {allure_html_report}".format(allure_html_report=host_allure_html_report))
+        else:
+            self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
         _CafyConfig.summary["allure2"] = {
                 "commandline" : cmd,
                 "html" :  allure_html_report,
@@ -2021,6 +2057,8 @@ class CafyReportData(object):
         except Exception:
             self.git_commit_id = None
         self.archive = CafyLog.work_dir
+        if CONTAINER_MODE:
+            self.host_archive = container_mode_work_dir
         # summary result
         passed_list = self.terminalreporter.getreports('passed')
         failed_list = self.terminalreporter.getreports('failed')
