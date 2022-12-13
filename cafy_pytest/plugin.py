@@ -820,7 +820,7 @@ class EmailReport(object):
             #self.archive = os.path.join(CafyLog.work_dir, self.archive_name)
             self.archive = CafyLog.work_dir
             if CONTAINER_MODE:
-                self.host_archive = Cafylog.container_mode_work_dir
+                self.host_archive = CafyLog.container_mode_work_dir
             self.email_report = os.path.join(CafyLog.work_dir,
                                              email_report)
         else:
