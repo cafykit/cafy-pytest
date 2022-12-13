@@ -75,6 +75,7 @@ if CAFY_REPO is None:
                 print('GIT_REPO variable has been set to correct repo')
                 if CONTAINER_MODE:
                     CONTAINER_MODE_CAFY_REPO = os.environ.get("HOST_GIT_REPO", None)
+                    print (f"CONTAINER_MODE_CAFY_REPO = {CONTAINER_MODE_CAFY_REPO}")
             else:
                 msg = 'GIT_REPO has not been set to correct repo'
                 pytest.exit(msg)
