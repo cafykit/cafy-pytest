@@ -394,11 +394,16 @@ def pytest_configure(config):
         else:
             if os.path.exists(config.option.reportdir):
                 work_dir = os.path.join(config.option.reportdir, work_dir_name)
+                if CONTAINER_MODE:
+                    if os.environ.get("HOST_REPORT_DIR", None):
+                        container_mode_work_dir = os.environ.get("HOST_REPORT_DIR")
             else:
                 print('reportdir path not found: {}'.format(config.option.reportdir))
                 pytest.exit('reportdir path not found')
 
         CafyLog.work_dir = work_dir
+        if CONTAINER_MODE:
+            CafyLog.container_mode_work_dir = container_mode_work_dir
         #Set CafyLog.work_dir option for all.log
         CafyLog.work_dir = work_dir
         _setup_env()
@@ -564,7 +569,7 @@ def pytest_configure(config):
         #reporter.write_line("all.log location: %s" %CafyLog.work_dir)
         reporter.write_line("Virtual Env: %s" %(os.getenv("VIRTUAL_ENV")))
         if CONTAINER_MODE:
-            reporter.write_line("Complete Log Location: %s/all.log" % container_mode_work_dir)
+            reporter.write_line("Complete Log Location: %s/all.log" % CafyLog.container_mode_work_dir)
         else:
             reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
         reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
@@ -815,7 +820,7 @@ class EmailReport(object):
             #self.archive = os.path.join(CafyLog.work_dir, self.archive_name)
             self.archive = CafyLog.work_dir
             if CONTAINER_MODE:
-                self.host_archive = container_mode_work_dir
+                self.host_archive = Cafylog.container_mode_work_dir
             self.email_report = os.path.join(CafyLog.work_dir,
                                              email_report)
         else:
@@ -1772,7 +1777,7 @@ class EmailReport(object):
            terminalreporter.write_line(self.tabulate_result)
         self.dump_model_coverage_report()
         if CONTAINER_MODE:
-            terminalreporter.write_line("Results: {work_dir}".format(work_dir=container_mode_work_dir))
+            terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.container_mode_work_dir))
             terminalreporter.write_line(
                 "Reports: {allure_html_report}".format(allure_html_report=self.host_allure_html_report))
         else:
@@ -2059,7 +2064,7 @@ class CafyReportData(object):
             self.git_commit_id = None
         self.archive = CafyLog.work_dir
         if CONTAINER_MODE:
-            self.host_archive = container_mode_work_dir
+            self.host_archive = CafyLog.container_mode_work_dir
         # summary result
         passed_list = self.terminalreporter.getreports('passed')
         failed_list = self.terminalreporter.getreports('failed')
