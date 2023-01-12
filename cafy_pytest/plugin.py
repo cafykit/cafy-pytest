@@ -332,6 +332,7 @@ def _requests_retry(logger, url, method, data=None, files=None,  headers=None, t
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
+    print (f"config: {config}")
     config._environment = []
     email_list = config.option.email_list
     email_from = config.option.email_from
@@ -877,7 +878,7 @@ class EmailReport(object):
             cafy_kwargs = {'terminalreporter': terminalreporter,
                            'testcase_dict': self.testcase_dict,
                            'testcase_failtrace_dict':self.testcase_failtrace_dict,
-                           'archive': self.archive,
+                           'archive': self.host_archive if CONTAINER_MODE else self.archive,
                            'topo_file': self.topo_file,
                            'hybrid_mode_status_dict':self.hybrid_mode_status_dict}
         else:
