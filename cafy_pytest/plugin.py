@@ -75,7 +75,6 @@ if CAFY_REPO is None:
                 print('GIT_REPO variable has been set to correct repo')
                 if CONTAINER_MODE:
                     CONTAINER_MODE_CAFY_REPO = os.environ.get("HOST_GIT_REPO", None)
-                    print (f"CONTAINER_MODE_CAFY_REPO = {CONTAINER_MODE_CAFY_REPO}")
             else:
                 msg = 'GIT_REPO has not been set to correct repo'
                 pytest.exit(msg)
@@ -404,6 +403,7 @@ def pytest_configure(config):
         CafyLog.work_dir = work_dir
         if CONTAINER_MODE:
             CafyLog.container_mode_work_dir = container_mode_work_dir
+            print (f"container_mode_work_dir: {CafyLog.container_mode_work_dir}")
         #Set CafyLog.work_dir option for all.log
         CafyLog.work_dir = work_dir
         _setup_env()
@@ -884,7 +884,7 @@ class EmailReport(object):
             cafy_kwargs = {'terminalreporter': terminalreporter,
                            'testcase_dict': self.testcase_dict,
                            'testcase_failtrace_dict':self.testcase_failtrace_dict,
-                           'archive': self.archive,
+                           'archive': self.host_archive if CONTAINER_MODE else self.archive,
                            'topo_file': self.topo_file}
         report = CafyReportData(**cafy_kwargs)
         setattr(report,"tabulate_html", self.tabulate_html)
@@ -2019,6 +2019,7 @@ class CafyReportData(object):
         # Basic details
         option = self.terminalreporter.config.option
         self.script_list = option.file_or_dir
+        # TODO check if CONTAINER_MODE and then set the above script_list variable accordingly
         self.title = ' '.join(self.script_list)
         self.image = os.getenv("IMAGE", "Unknown")
         if os.environ.get("BUILD_URL"):
@@ -2055,14 +2056,18 @@ class CafyReportData(object):
         self.testbed = None
         self.registration_id = CafyLog.registration_id
         self.submitter = EmailReport.USER
-        self.cafy_repo = EmailReport.CAFY_REPO
+        self.cafy_repo = EmailReport.CAFY_REPO if not CONTAINER_MODE else CONTAINER_MODE_CAFY_REPO
+        #TODO: check on cafy_Repo variable value
         self.topo_file = topo_file
+        #TODO: topo_file variable needs to print host path for CONTAINER mode
         self.run_dir = self.terminalreporter.startdir.strpath
+        # TODO: run_dir variable needs to print host path for CONTAINER mode
         try:
             self.git_commit_id = subprocess.check_output(['git', 'rev-parse', 'origin/master'], timeout=5).decode("utf-8").replace('\n', '')
         except Exception:
             self.git_commit_id = None
         self.archive = CafyLog.work_dir
+        #TODO: archive variable value for CONTAINER mode
         if CONTAINER_MODE:
             self.host_archive = CafyLog.container_mode_work_dir
         # summary result
