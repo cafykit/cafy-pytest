@@ -874,6 +874,8 @@ class EmailReport(object):
     def _generate_with_template(self, terminalreporter):
         '''generate report using template'''
         #additional field of hybrid_mode_status_dict for html template in order display mode of each testcase in email report
+        print (f"########CONTAINER_MODE = {CONTAINER_MODE}")
+        print (f"########self.host_archive = {self.host_archive}")
         if hasattr(CafyLog,"hybrid_mode_dict") and CafyLog.hybrid_mode_dict.get('mode',None):
             cafy_kwargs = {'terminalreporter': terminalreporter,
                            'testcase_dict': self.testcase_dict,
