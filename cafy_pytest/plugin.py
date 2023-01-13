@@ -2069,10 +2069,7 @@ class CafyReportData(object):
             self.git_commit_id = subprocess.check_output(['git', 'rev-parse', 'origin/master'], timeout=5).decode("utf-8").replace('\n', '')
         except Exception:
             self.git_commit_id = None
-        self.archive = CafyLog.work_dir
-        #TODO: archive variable value for CONTAINER mode
-        if CONTAINER_MODE:
-            self.host_archive = CafyLog.container_mode_work_dir
+        self.archive = archive
         # summary result
         passed_list = self.terminalreporter.getreports('passed')
         failed_list = self.terminalreporter.getreports('failed')
