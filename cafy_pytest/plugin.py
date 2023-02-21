@@ -1254,8 +1254,13 @@ class EmailReport(object):
                     self.generate_collection_config(self.collection)
                 collection_config_file = os.path.join(CafyLog.work_dir, 'collection_config.json')
                 self.collection_manager = collection_setup.setup(topo_file,collection_config_file)
+                self.collection_manager.connect()
+                self.collection_manager.configure()
         except Exception as e:
             self.log.error("Collection Failed")
+        yield
+        self.collection_manager.deconfigure()
+        self.collection_manager.disconnect()
 
     pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report):
@@ -1263,9 +1268,6 @@ class EmailReport(object):
         if report.when == 'setup':
             self.log.set_testcase(testcase_name)
             self.log.title("Start test:  %s" %(testcase_name))
-            if self.collection:
-               self.collection_manager.connect()
-               self.collection_manager.configure()
             #Notify testcase_name to handshake server
             #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to handshake server
             if self.reg_dict:
@@ -1385,9 +1387,6 @@ class EmailReport(object):
             if hasattr(CafyLog,"model_tracker_dict"):
                 self.model_coverage_report[testcase_name]=CafyLog.model_tracker_dict
                 CafyLog.model_tracker_dict={}
-            if self.collection:
-               self.collection_manager.deconfigure()
-               self.collection_manager.disconnect()
             self.log.title("Finish test: %s (%s)" %(testcase_name,status))
             self.log.info("="*80)
 
