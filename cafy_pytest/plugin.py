@@ -1891,6 +1891,7 @@ class EmailReport(object):
         #print("Allure Command Line Used: {cmd}".format(cmd=cmd))
         allure_report = os.path.join(allure_report_dir,"index.html")
         CafyLog.htmlfile_link = allure_report
+        #TODO: Fix the htmlfile_link variable
         allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
         self.allure_html_report = allure_html_report
         if CONTAINER_MODE:
