@@ -1912,7 +1912,7 @@ class EmailReport(object):
                   "debug_server_name": CafyLog.debug_server}
         url = 'http://{0}:5001/get_analyzer_log/'.format(CafyLog.debug_server)
         try:
-            response = _requests_retry(self.log, url, 'GET', data=params, timeout=60)
+            response = _requests_retry(self.log, url, 'GET', data=params, timeout=120)
             if response is not None and response.status_code == 200:
                 if response.text:
                     if 'Content-Disposition' in response.headers:
