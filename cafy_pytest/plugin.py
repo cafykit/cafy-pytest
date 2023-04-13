@@ -279,7 +279,7 @@ def _requests_retry(logger, url, method, data=None, files=None,  headers=None, t
         _requests_retry(url, 'POST', data=json.dumps(context,
                              default=json_serial))
     """
-    retries = Retry(total=5,
+    retries = Retry(total=2,
                     backoff_factor=1,
                     status_forcelist=[502, 503, 504, 404])
     s = requests.Session()
@@ -1053,7 +1053,7 @@ class EmailReport(object):
             try:
                 url = "http://{0}:5001/end_test_case/".format(CafyLog.debug_server)
                 self.log.info("Calling registration service (url:%s) to check analyzer status" % url)
-                response = _requests_retry(self.log, url, 'GET', data=params, timeout=60)
+                response = _requests_retry(self.log, url, 'GET', data=params, timeout=15)
                 if response.status_code == 200:
                     return response.json()['analyzer_status']
                 else:
@@ -1912,7 +1912,7 @@ class EmailReport(object):
                   "debug_server_name": CafyLog.debug_server}
         url = 'http://{0}:5001/get_analyzer_log/'.format(CafyLog.debug_server)
         try:
-            response = _requests_retry(self.log, url, 'GET', data=params, timeout=300)
+            response = _requests_retry(self.log, url, 'GET', data=params, timeout=60)
             if response is not None and response.status_code == 200:
                 if response.text:
                     if 'Content-Disposition' in response.headers:
