@@ -231,6 +231,30 @@
       </tbody>
     </table>
 
+    <h3>Debug Collection</h3>
+    <table class="table table-bordered">
+      <col width="30%">
+      <tbody>
+      <tr>
+        <td>Model coverage</td>
+        <td>{{report.collection_report_dict.model_coverage}}</td>
+      </tr>
+      <tr>
+        <td>Collector lsan</td>
+        <td>{{report.collection_report_dict.collector_lsan}}</td>
+      </tr>
+      <tr>
+        <td>Collector asan</td>
+        <td>{{report.collection_report_dict.collector_asan}}</td>
+      </tr>
+
+      <tr>
+        <td>Collector yang</td>
+        <td>{{report.collection_report_dict.collector_yang}}</td>
+      </tr>
+      </tbody>
+    </table>
+
     <!-- Detailed Report -->
 
     {{ detailed_header(report) }}

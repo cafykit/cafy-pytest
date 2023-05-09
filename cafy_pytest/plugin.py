@@ -54,6 +54,8 @@ import _pytest
 #Check if CONTAINER_MODE env variable is set, this mode is set when cafykit scripts are run using docker/podman
 CONTAINER_MODE = os.environ.get("CONTAINER_MODE", None)
 
+from utils.collectors.confest import Config
+collection_setup = Config()
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
@@ -218,6 +220,10 @@ def pytest_addoption(parser):
             metavar='mongo_mode',
             help='Variable to enable mongo read/write, default is None')
 
+    group.addoption('--collection', action='store', dest='collection',
+            type=str, nargs='+', default=[],
+            help='For additional cafy arguments to enable collection')
+
 def is_valid_param(arg, file_type=None):
     if not arg:
         pytest.exit("%s not provided!" % file_type)
@@ -348,6 +354,9 @@ def pytest_configure(config):
     CafyLog.mongomode=config.option.mongo_mode
     CafyLog.giso_dir = config.option.giso_dir
     script_list = config.option.file_or_dir
+    collection_list = []
+    for item in config.option.collection:
+        collection_list.extend(item.split(","))
     # register additional markers
     config.addinivalue_line("markers", "Future(name): mark test that are planned for future")
     config.addinivalue_line("markers", "Feature(name): mark feature of a testcase")
@@ -562,7 +571,9 @@ def pytest_configure(config):
                                     no_email,
                                     no_detail_message,
                                     topo_file,
-                                    script_list, reg_dict)
+                                    script_list,
+                                    reg_dict,
+                                    collection_list)
         config.pluginmanager.register(config._email)
 
         #Write all.log path to terminal
@@ -774,7 +785,7 @@ class EmailReport(object):
     START_TIME = time.asctime(time.localtime(START.timestamp()))
 
     def __init__(self, email_addr_list, email_from, email_from_passwd,
-                 smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict):
+                 smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict, collection_list):
         '''
         @param email_addr_list: list of email address to which email needs to
         be sent.
@@ -842,6 +853,10 @@ class EmailReport(object):
         self.report_dump={}
         self.temp_json={}
         self.model_coverage_report={}
+        self.collection_manager = None
+        self.collection_report = {'model_coverage':None,'collector_lsan':None,'collector_asan':None,'collector_yang':None}
+        self.collection = collection_list
+        self.debug_collector = False
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -882,13 +897,16 @@ class EmailReport(object):
                            'testcase_failtrace_dict':self.testcase_failtrace_dict,
                            'archive': self.host_archive if CONTAINER_MODE else self.archive,
                            'topo_file': self.topo_file,
+                           'collection_report': self.collection_report,
                            'hybrid_mode_status_dict':self.hybrid_mode_status_dict}
         else:
             cafy_kwargs = {'terminalreporter': terminalreporter,
                            'testcase_dict': self.testcase_dict,
                            'testcase_failtrace_dict':self.testcase_failtrace_dict,
                            'archive': self.host_archive if CONTAINER_MODE else self.archive,
-                           'topo_file': self.topo_file}
+                           'topo_file': self.topo_file,
+                           'collection_report': self.collection_report}
+
         report = CafyReportData(**cafy_kwargs)
         setattr(report,"tabulate_html", self.tabulate_html)
         template_file = os.path.join(self.CURRENT_DIR,
@@ -1230,6 +1248,49 @@ class EmailReport(object):
                         continue
         return method_list
 
+    """
+    Method: generate_collection_config
+       Take collection_config_list and generate
+       collection_config json
+    """
+    def generate_collection_config(self,collection_config_list):
+        collection_config = {'debug': {'enabled': False}, 'lsan': {'enabled': False}, 'asan':{'enabled': False},'yang': {'enabled': False}}
+        for config_key in collection_config_list:
+            if config_key in collection_config:
+                collection_config[config_key]['enabled'] = True
+        path=CafyLog.work_dir
+        file_name='collection_config.json'
+        with open(os.path.join(path, file_name), 'w') as fp:
+            json.dump(collection_config,fp)
+
+    """
+    Method: enable_collection
+       enable_collection is a pytest fixture function which run in the starting of the setup of
+       testcases at the module level
+    if --collection args passed along with pytest cmd
+       eg: --collection = ['lsan','debug','asan','yang','collection-config']
+    then
+       1: Generate collection config based on the pytest args passed by user
+       2: get the topology file
+       3: call collection setup by passing topology file and collection config list
+       4: collection_setup.setup return collection_manager object which can be used for
+          4.1: collection_manager connect
+          4.2: collection_manager configure
+          4.3: collection_manager dconfigure
+          4.4:  collection_manager disconnect
+    """
+    @pytest.fixture(scope='module', autouse=True)
+    def enable_collection(self, request):
+        try:
+            if self.collection:
+                topo_file = CafyLog.topology_file
+                self.generate_collection_config(self.collection)
+                collection_config_file = os.path.join(CafyLog.work_dir, 'collection_config.json')
+                self.collection_manager = collection_setup.setup(topo_file,collection_config_file)
+                self.collection_manager.configure()
+        except Exception as e:
+            self.log.error("Collection Failed")
+
     pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report):
         testcase_name =  self.get_test_name(report.nodeid)
@@ -1269,7 +1330,12 @@ class EmailReport(object):
                     self.log.info('Analyzer is not invoked as testcase failed in setup')
             status = "unknown"
             if testcase_name in self.testcase_dict:
-                status = self.testcase_dict[testcase_name].status
+                # if error occur during module teardown then marking status as failed and adding stack_exception
+                if report.longrepr:
+                    status = 'failed'
+                    self.temp_json["stack_exception"] = str(report.longrepr)
+                else:
+                    status = self.testcase_dict[testcase_name].status
             try:
                 if status != "passed" :
                     self.temp_json["name"] = testcase_name
@@ -1355,14 +1421,23 @@ class EmailReport(object):
             if hasattr(CafyLog,"model_tracker_dict"):
                 self.model_coverage_report[testcase_name]=CafyLog.model_tracker_dict
                 CafyLog.model_tracker_dict={}
-
             self.log.title("Finish test: %s (%s)" %(testcase_name,status))
             self.log.info("="*80)
 
         #The following if block is executed for @pytest.mark.xfail(run=False) and
         #@@pytest.mark.skip(..) markers because testcases marked with these
         #will never go into call stage
-        if report.when == 'setup' and report.outcome == 'skipped':
+        if report.when == 'setup':
+           testcase_name = self.get_test_name(report.nodeid)
+           testcase_status = report.outcome
+           self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,testcase_status,report.longrepr)
+           if testcase_status == 'failed':
+                if report.longrepr:
+                    self.temp_json["stack_exception"] = str(report.longrepr)
+                else:
+                    self.temp_json["stack_exception"] = ""
+
+        elif report.when == 'setup' and report.outcome == 'skipped':
             if hasattr(report, "wasxfail"):
                 #This is to handle tests that are marked with @pytest.mark.xfail(run=False)
                 #which means don't execute the testcase. Such testcase will never go into the
@@ -1376,12 +1451,11 @@ class EmailReport(object):
                 #report.when=call stage
                 testcase_name = self.get_test_name(report.nodeid)
                 self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,'skipped',report.longrepr)
-            '''
             if report.longrepr:
-                self.testcase_failtrace_dict[testcase_name] = report.longrepr
+                self.temp_json["stack_exception"]=str(report.longrepr)
             else:
-                self.testcase_failtrace_dict[testcase_name] = None
-            '''
+                self.temp_json["stack_exception"]=""
+
         elif report.when == 'call':
             testcase_name = self.get_test_name(report.nodeid)
             if hasattr(report, "wasxfail"):
@@ -1395,14 +1469,10 @@ class EmailReport(object):
                 self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,testcase_status,report.longrepr)
                 if testcase_status == 'failed':
                     self.testcase_failtrace_dict[testcase_name] = CafyLog.fail_log_msg
-                    #print('failmsg = ', self.testcase_failtrace_dict[testcase_name])
-                    #
-                '''
-                if report.longrepr:
-                    self.testcase_failtrace_dict[testcase_name] = report.longrepr
-                else:
-                    self.testcase_failtrace_dict[testcase_name] = None
-                '''
+                    if report.longrepr:
+                        self.temp_json["stack_exception"] = str(report.longrepr)
+                    else:
+                        self.temp_json["stack_exception"] = ""
             else:
                 testcase_status = report.outcome
                 self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,testcase_status,report.longrepr)
@@ -1415,7 +1485,6 @@ class EmailReport(object):
                         self.testcase_failtrace_dict[testcase_name] = None
                 else:
                     self.temp_json["stack_exception"]= ""
-
 
     def check_call_report(self, item, nextitem):
         """
@@ -1552,7 +1621,7 @@ class EmailReport(object):
 
                                 headers = {'content-type': 'application/json'}
 
-                                if len(collector_actual_obj_dict_list) > 0 and report.when!='setup':
+                                if len(collector_actual_obj_dict_list) > 0:
                                     params = {"testcase_name": testcase_name, "class_name": base_class_name,
                                               "inherited_classes": inherited_classes,
                                               "reg_dict": self.reg_dict, "actual_obj_name": collector_actual_obj_name_list,
@@ -1560,10 +1629,19 @@ class EmailReport(object):
                                               "failed_attr": collector_failed_attribute_list,
                                               "debug_server_name": CafyLog.debug_server,
                                               "exception_name": collector_exception_name_list}
-                                    response = self.invoke_reg_on_failed_testcase(params, headers)
-                                    if response is not None and response.status_code == 200:
-                                        if response.text:
-                                            self.log.info("Debug Collector logs: %s" % response.text)
+                                    if report.when == 'setup':
+                                        if hasattr(node.parent, 'cls') and self.debug_collector == False:
+                                            self.debug_collector = True
+                                            response = self.invoke_reg_on_failed_testcase(params, headers)
+                                            if response is not None and response.status_code == 200:
+                                               if response.text:
+                                                   self.log.info("Debug Collector logs: %s" % response.text)
+                                    elif report.when == 'call':
+                                        response = self.invoke_reg_on_failed_testcase(params, headers)
+                                        if response is not None and response.status_code == 200:
+                                            if response.text:
+                                                self.log.info("Debug Collector logs: %s" % response.text)
+
 
                                 if len(rc_actual_obj_dict_list) > 0:
                                     params = {"testcase_name": testcase_name, "class_name": base_class_name,
@@ -1733,6 +1811,17 @@ class EmailReport(object):
        with open(os.path.join(path, file_name), 'w') as fp:
            json.dump(self.model_coverage_report,fp)
 
+    def collect_collection_report(self):
+        path=CafyLog.work_dir
+        if os.path.exists(os.path.join(path, 'model_coverage.json')):
+            self.collection_report['model_coverage'] = os.path.join(path, 'model_coverage.json')
+        if os.path.exists(os.path.join(path, 'lsan')):
+            self.collection_report['collector_lsan'] = os.path.join(path, 'lsan')
+        if os.path.exists(os.path.join(path, 'asan')):
+            self.collection_report['collector_asan'] = os.path.join(path, 'asan')
+        if os.path.exists(os.path.join(path, 'yang')):
+            self.collection_report['collector_yang'] = os.path.join(path, 'yang')
+
     def pytest_terminal_summary(self, terminalreporter):
         '''this hook is the execution point of email plugin'''
         #self._generate_email_report(terminalreporter)
@@ -1788,6 +1877,7 @@ class EmailReport(object):
 
             terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
 
+        self.collect_collection_report()
         self._generate_email_report(terminalreporter)
 
         if not self.no_email:
@@ -1977,6 +2067,8 @@ class EmailReport(object):
         with open(summary_file, 'w') as outfile:
             json.dump(_CafyConfig.summary, outfile, indent=4, sort_keys=True)
 
+        if self.collection:
+            self.collection_manager.deconfigure()
         '''
         line_regex = re.compile(r"\-\w*\-{1,}\-\d{4}\-\d{2}\-\d{2}T\d*\-\d*\-\d*\[([\w\-:]*)\](\[.*\])?>")
         log_filename = os.path.join(CafyLog.work_dir, 'all.log')
@@ -2013,11 +2105,12 @@ class CafyReportData(object):
     testcase = namedtuple('testcase', ['name', 'result', 'fail_log', 'url'])
     summary = namedtuple('summary', ['passed', 'failed', 'not_run', 'total'])
 
-    def __init__(self, terminalreporter, testcase_dict, testcase_failtrace_dict, archive, topo_file,hybrid_mode_status_dict=None):
+    def __init__(self, terminalreporter, testcase_dict, testcase_failtrace_dict, archive, topo_file, hybrid_mode_status_dict=None, collection_report=None):
         self.terminalreporter = terminalreporter
         self.testcase_dict = testcase_dict
         self.testcase_failtrace_dict = testcase_failtrace_dict
         self.hybrid_mode_status_dict=hybrid_mode_status_dict
+        self.collection_report_dict = collection_report
         self.start = EmailReport.START
         self.start_time = EmailReport.START_TIME
         # Basic details
