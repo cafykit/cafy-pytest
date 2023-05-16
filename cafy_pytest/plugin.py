@@ -377,7 +377,6 @@ def pytest_configure(config):
         _current_time = get_datentime()
         pid = os.getpid()
         work_dir_name = "%s_%s_p%s" % (script_name,_current_time, pid )
-
         if not config.option.reportdir:
             #If workdir option is set, execute the if block and if not given,
             #execute the else block where the workdir will be set to
@@ -889,8 +888,6 @@ class EmailReport(object):
     def _generate_with_template(self, terminalreporter):
         '''generate report using template'''
         #additional field of hybrid_mode_status_dict for html template in order display mode of each testcase in email report
-        print (f"########CONTAINER_MODE = {CONTAINER_MODE}")
-        print (f"########self.host_archive = {self.host_archive}")
         if hasattr(CafyLog,"hybrid_mode_dict") and CafyLog.hybrid_mode_dict.get('mode',None):
             cafy_kwargs = {'terminalreporter': terminalreporter,
                            'testcase_dict': self.testcase_dict,
@@ -1869,13 +1866,12 @@ class EmailReport(object):
            terminalreporter.write_line(self.tabulate_result)
         self.dump_model_coverage_report()
         if CONTAINER_MODE:
-            terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.container_mode_work_dir))
-            terminalreporter.write_line(
-                "Reports: {allure_html_report}".format(allure_html_report=self.host_allure_html_report))
+            terminalreporter.write_line(f"Results: {CafyLog.container_mode_work_dir}")
+            #terminalreporter.write_line(f"Reports: {self.host_allure_html_report}")
         else:
-            terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
-
-            terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
+            terminalreporter.write_line(f"Results: {CafyLog.work_dir}")
+            #terminalreporter.write_line(f"Reports: {self.allure_html_report}")
+        terminalreporter.write_line(f"Reports: {self.allure_html_report}")
 
         self.collect_collection_report()
         self._generate_email_report(terminalreporter)
@@ -1978,23 +1974,30 @@ class EmailReport(object):
                     allure_path=allure_path,
                     allure_source_dir=allure_source_dir,
                     allure_report_dir=allure_report_dir)
-        #print("Allure Command Line Used: {cmd}".format(cmd=cmd))
+        os.system(cmd)
         allure_report = os.path.join(allure_report_dir,"index.html")
-        CafyLog.htmlfile_link = allure_report
-        #TODO: Fix the htmlfile_link variable
         allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
-        self.allure_html_report = allure_html_report
+        """
         if CONTAINER_MODE:
             host_allure_report_dir = os.path.join(self.host_archive,"reports")
             host_allure_report = os.path.join(host_allure_report_dir,"index.html")
             host_allure_html_report = os.path.join(_CafyConfig.allure_server,host_allure_report.strip("/"))
             self.host_allure_html_report = host_allure_html_report
-        os.system(cmd)
-        #print("Report Generated at: {allure_report}".format(allure_report=allure_report))
-        if CONTAINER_MODE:
-            self.log.info("Report: {allure_html_report}".format(allure_html_report=host_allure_html_report))
+            CafyLog.htmlfile_link = host_allure_report
+            self.log.info(f"Report: {host_allure_html_report}")
         else:
-            self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
+            CafyLog.htmlfile_link = allure_report
+            self.log.info(f"Report: {allure_html_report}")
+        """
+        if CONTAINER_MODE:
+            allure_report_dir = os.path.join(self.host_archive,"reports")
+            allure_report = os.path.join(allure_report_dir,"index.html")
+            allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
+       
+        self.allure_html_report = allure_html_report
+        CafyLog.htmlfile_link = allure_report
+        self.log.info(f"Report: {allure_html_report}")
+
         _CafyConfig.summary["allure2"] = {
                 "commandline" : cmd,
                 "html" :  allure_html_report,
@@ -2153,8 +2156,7 @@ class CafyReportData(object):
         self.testbed = None
         self.registration_id = CafyLog.registration_id
         self.submitter = EmailReport.USER
-        self.cafy_repo = EmailReport.CAFY_REPO if not CONTAINER_MODE else CONTAINER_MODE_CAFY_REPO
-        #TODO: check on cafy_Repo variable value
+        self.cafy_repo = EmailReport.CAFY_REPO if not CONTAINER_MODE else os.environ.get("HOST_GIT_REPO", None)
         self.topo_file = topo_file
         #TODO: topo_file variable needs to print host path for CONTAINER mode
         self.run_dir = self.terminalreporter.startdir.strpath
