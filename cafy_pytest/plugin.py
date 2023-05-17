@@ -245,7 +245,7 @@ def is_valid_cafyarg(arg):
     #if block is executed when arg is not a file,instead it is string of dict
     if not os.path.exists(arg):
         eval(arg)
-        argdict = yaml.load(arg)
+        argdict = yaml.safe_load(arg)
         CafyLog.script_args = argdict
     else:
         #else block is executed when arg is a file
@@ -263,7 +263,7 @@ def load_config_file(filename=None):
             _filename = os.path.join(
                 git_repo, "work", "pytest_cafy_config.yaml")
             with open(_filename, 'r') as stream:
-                return (yaml.load(stream))
+                return (yaml.safe_load(stream))
         except:
             return {}
 
