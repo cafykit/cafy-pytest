@@ -338,7 +338,6 @@ def _requests_retry(logger, url, method, data=None, files=None,  headers=None, t
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    print (f"config: {config}")
     config._environment = []
     email_list = config.option.email_list
     email_from = config.option.email_from
