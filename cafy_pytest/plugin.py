@@ -1866,10 +1866,8 @@ class EmailReport(object):
         self.dump_model_coverage_report()
         if CONTAINER_MODE:
             terminalreporter.write_line(f"Results: {CafyLog.container_mode_work_dir}")
-            #terminalreporter.write_line(f"Reports: {self.host_allure_html_report}")
         else:
             terminalreporter.write_line(f"Results: {CafyLog.work_dir}")
-            #terminalreporter.write_line(f"Reports: {self.allure_html_report}")
         terminalreporter.write_line(f"Reports: {self.allure_html_report}")
 
         self.collect_collection_report()
@@ -1914,7 +1912,6 @@ class EmailReport(object):
                     pass
             else:
                 if log_parsing_state is LogState.NONE:
-                    # print("Starting generic log")
                     log_grouping = GenericLogGrouping()
                     all_log_groupings.append(log_grouping)
                     log_parsing_state = LogState.GENERIC
@@ -1976,18 +1973,6 @@ class EmailReport(object):
         os.system(cmd)
         allure_report = os.path.join(allure_report_dir,"index.html")
         allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
-        """
-        if CONTAINER_MODE:
-            host_allure_report_dir = os.path.join(self.host_archive,"reports")
-            host_allure_report = os.path.join(host_allure_report_dir,"index.html")
-            host_allure_html_report = os.path.join(_CafyConfig.allure_server,host_allure_report.strip("/"))
-            self.host_allure_html_report = host_allure_html_report
-            CafyLog.htmlfile_link = host_allure_report
-            self.log.info(f"Report: {host_allure_html_report}")
-        else:
-            CafyLog.htmlfile_link = allure_report
-            self.log.info(f"Report: {allure_html_report}")
-        """
         if CONTAINER_MODE:
             allure_report_dir = os.path.join(self.host_archive,"reports")
             allure_report = os.path.join(allure_report_dir,"index.html")
@@ -2027,7 +2012,6 @@ class EmailReport(object):
             headers = {'content-type': 'application/json'}
             try:
                 url = 'http://{0}:5001/uploadcollectorlogfile/'.format(CafyLog.debug_server)
-                print("url = ", url)
                 self.log.info("Calling registration upload collector logfile service (url:%s)" %url)
                 response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
                 if response is not None and response.status_code == 200:
@@ -2214,10 +2198,6 @@ class CafyReportData(object):
             CafyLog.email_htmlfile_link = file_link
         else:
             print('\n Email html report not generated')
-
-
-
-
 
         if CafyLog.email_htmlfile_link:
             self.summary_report = CafyLog.email_htmlfile_link
