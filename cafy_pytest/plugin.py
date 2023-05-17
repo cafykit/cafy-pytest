@@ -1830,7 +1830,7 @@ class EmailReport(object):
             else:
                 headers = ['Testcase_name', 'Status', "Message"]
                 temp_list = []
-                for k,v in self.testcase_dict.items():
+                for v in self.testcase_dict.values():
                     try:
                         message = v.message.chain[0][1].message
                     except Exception:
