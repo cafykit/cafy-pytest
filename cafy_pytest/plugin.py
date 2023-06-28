@@ -831,6 +831,7 @@ class EmailReport(object):
         self.collection_report = {'model_coverage':None,'collector_lsan':None,'collector_asan':None,'collector_yang':None}
         self.collection = collection_list
         self.debug_collector = False
+        self.plugin_sleep_time = 0
         self.granular_time_accounting_report = dict()
 
     def _sendemail(self):
@@ -1012,11 +1013,12 @@ class EmailReport(object):
         testcase_name = self.get_test_name(item.nodeid)
         self.log.info('Teardown module for testcase {}'.format(testcase_name))
 
+    # Pytest Fixture which measure the sleep time spend by method
     @pytest.fixture(scope='function', autouse=True)
     def timer_fixture(self, request):
-        start_time = time.time()
+        start_time = time.perf_counter()
         yield
-        end_time = time.time()
+        end_time = time.perf_counter()
         run_time = end_time - start_time
         global total_time
         total_time += run_time
@@ -1745,7 +1747,9 @@ class EmailReport(object):
                             if message["collector_status"] == True:
                                 return response
                             else:
-                                time.sleep(30)
+                                sleep_time = 30
+                                time.sleep(sleep_time)
+                                self.plugin_sleep_time += sleep_time
                                 waiting_time = waiting_time + 30
                                 if waiting_time > 900:
                                     poll_flag = False
@@ -1806,7 +1810,7 @@ class EmailReport(object):
     #method: To Create granular time accounting report module level
     def record_time(self):
         global total_time
-        self.granular_time_accounting_report["sleep_time"] = str(total_time) + "sec"
+        self.granular_time_accounting_report["sleep_time"] = str(total_time + self.plugin_sleep_time) + "sec"
         path=CafyLog.work_dir
         file_name='record_time.json'
         with open(os.path.join(path, file_name), 'w') as fp:
