@@ -22,6 +22,7 @@ import pytest
 import allure
 import traceback
 from .cafy import Cafy
+from .cafy_timer import TimeCollectorPlugin
 
 from urllib3 import Retry
 from requests.adapters import HTTPAdapter
@@ -56,8 +57,7 @@ collection_setup = Config()
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
 setattr(pytest,"allure",allure)
-# Global variable to store the total time of module taken for run
-total_time = 0
+
 
 if CAFY_REPO is None:
     #If CAFYAP_REPO is not set, check if GIT_REPO or CAFYKIT_HOME is set
@@ -554,6 +554,7 @@ def pytest_configure(config):
                                     reg_dict,
                                     collection_list)
         config.pluginmanager.register(config._email)
+        config.pluginmanager.register(TimeCollectorPlugin())
 
         #Write all.log path to terminal
         reporter = TerminalReporter(config, sys.stdout)
@@ -580,10 +581,10 @@ def pytest_unconfigure(config):
         tmp_str_text = str(tmp_text)
         with open(os.path.join(CafyLog.work_dir, "env.txt"), "w") as f:
             f.write(tmp_str_text)
+        time_collector_plugin = config.pluginmanager.get_plugin(TimeCollectorPlugin)
+        config.pluginmanager.unregister(time_collector_plugin)
     except:
         pass
-
-
 
 
 def pytest_generate_tests(metafunc):
@@ -832,7 +833,6 @@ class EmailReport(object):
         self.collection = collection_list
         self.debug_collector = False
         self.plugin_sleep_time = 0
-        self.granular_time_accounting_report = dict()
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -1013,15 +1013,6 @@ class EmailReport(object):
         testcase_name = self.get_test_name(item.nodeid)
         self.log.info('Teardown module for testcase {}'.format(testcase_name))
 
-    # Pytest Fixture which measure the sleep time spend by method
-    @pytest.fixture(scope='function', autouse=True)
-    def timer_fixture(self, request):
-        start_time = time.perf_counter()
-        yield
-        end_time = time.perf_counter()
-        run_time = end_time - start_time
-        global total_time
-        total_time += run_time
 
     @pytest.fixture(scope='function', autouse=True)
     def check_test_run(self, request):
@@ -1807,14 +1798,6 @@ class EmailReport(object):
         if os.path.exists(os.path.join(path, 'yang')):
             self.collection_report['collector_yang'] = os.path.join(path, 'yang')
 
-    #method: To Create granular time accounting report module level
-    def record_time(self):
-        global total_time
-        self.granular_time_accounting_report["sleep_time"] = str(total_time + self.plugin_sleep_time) + "sec"
-        path=CafyLog.work_dir
-        file_name='record_time.json'
-        with open(os.path.join(path, file_name), 'w') as fp:
-            json.dump(self.granular_time_accounting_report,fp)
 
     def pytest_terminal_summary(self, terminalreporter):
         '''this hook is the execution point of email plugin'''
@@ -1865,9 +1848,7 @@ class EmailReport(object):
         terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
         terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
         self.collect_collection_report()
-        self.record_time()
         self._generate_email_report(terminalreporter)
-
         if not self.no_email:
             self._sendemail()
 
