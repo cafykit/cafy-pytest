@@ -832,7 +832,6 @@ class EmailReport(object):
         self.collection_report = {'model_coverage':None,'collector_lsan':None,'collector_asan':None,'collector_yang':None}
         self.collection = collection_list
         self.debug_collector = False
-        self.plugin_sleep_time = 0
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -1738,9 +1737,7 @@ class EmailReport(object):
                             if message["collector_status"] == True:
                                 return response
                             else:
-                                sleep_time = 30
-                                time.sleep(sleep_time)
-                                self.plugin_sleep_time += sleep_time
+                                time.sleep(30)
                                 waiting_time = waiting_time + 30
                                 if waiting_time > 900:
                                     poll_flag = False
