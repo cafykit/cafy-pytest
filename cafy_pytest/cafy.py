@@ -49,7 +49,7 @@ class Cafy:
             super().__init__(title, params)
             self.blocking = blocking
             self.logger = logger
-            self.log.banner(title) 
+            self.logger.banner(title) 
 
         def __enter__(self):
             super().__enter__()
