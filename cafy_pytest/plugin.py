@@ -2103,6 +2103,8 @@ class CafyReportData(object):
         option = self.terminalreporter.config.option
         self.script_list = option.file_or_dir
         # TODO check if CONTAINER_MODE and then set the above script_list variable accordingly
+        if CONTAINER_MODE:
+            pass
         self.title = ' '.join(self.script_list)
         self.image = os.getenv("IMAGE", "Unknown")
         if os.environ.get("BUILD_URL"):

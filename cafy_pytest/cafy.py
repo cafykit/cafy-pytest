@@ -5,6 +5,9 @@ Cafy Placeholder class for pytest integeration
 from allure_commons._allure import StepContext as AllureStepContext
 import pytest
 from utils.cafyexception import CafyException
+from logger.cafylog import CafyLog
+log = CafyLog("cafy_pytest_step")
+
 class Cafy:
 
     class Globals: 
@@ -45,8 +48,10 @@ class Cafy:
             super().__init__(title, params)
             self.blocking = blocking
             self.logger = logger
+            self.title=title
 
         def __enter__(self):
+            log.title(f" Start of step: {self.title}")
             super().__enter__()
 
         def __exit__(self, exc_type, exc_val, exc_tb):
@@ -58,13 +63,15 @@ class Cafy:
                         exc_type=exc_type,
                         exc_tb=exc_tb))
                     Cafy.RunInfo.active_exceptions.append(exc_val)
-
+            log.title(f" Finish of step: {self.title}")
             return not self.blocking
 
         
     class StepScope():
         def __init__(self, title):
             self.title = title
+            #log.title(title)
+
 
         def __enter__(self):
             Cafy.RunInfo.active_exceptions = list()
