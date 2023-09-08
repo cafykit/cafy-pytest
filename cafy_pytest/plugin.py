@@ -41,15 +41,12 @@ from _pytest.terminal import TerminalReporter
 from _pytest.runner import runtestprotocol
 
 # Cafykit imports
-from debug import DebugLibrary
 from logger.cafylog import CafyLog
 from topology.topo_mgr.topo_mgr import Topology
 from utils.cafyexception import CafyException
 from utils.collectors.confest import Config
 
 from .cafy import Cafy
-from .cafy_pdb import CafyPdb
-from .cafypdb_config import CafyPdb_Configs
 
 
 collection_setup = Config()
@@ -187,10 +184,6 @@ def pytest_addoption(parser):
     group.addoption('-D', "--unset-feature-lib-mode", action='store_true', dest='unset_feature_lib_mode',
                     help='Variable to unset feature_lib_mode set by -M arg, default is False')
 
-    group = parser.getgroup('Cafykit Debug ')
-    group.addoption('--debug-enable', dest='debug_enable', action='store_true',
-                    help='Variable to enable cafykit debug, default is False')
-
     group = parser.getgroup('Script Arguments')
     group.addoption('--script-args', action='store', dest='script_args',
                     metavar='script_args', default="{'__nothing__': None}",
@@ -215,11 +208,7 @@ def pytest_addoption(parser):
             type=str, nargs='+', default=[],
             help='For additional cafy arguments to enable collection')
 
-    group = parser.getgroup('Cafy PDB ')
-    group.addoption('--cafypdb', dest='cafypdb', action='store_true',
-                    help='Variable to enable cafy PDB, default is False')
-
-
+    
 def is_valid_param(arg, file_type=None):
     if not arg:
         pytest.exit("%s not provided!" % file_type)
@@ -352,7 +341,6 @@ def pytest_configure(config):
     collection_list = []
     for item in config.option.collection:
         collection_list.extend(item.split(","))
-    cafypdb = config.option.cafypdb
     # register additional markers
     config.addinivalue_line("markers", "Future(name): mark test that are planned for future")
     config.addinivalue_line("markers", "Feature(name): mark feature of a testcase")
@@ -410,11 +398,7 @@ def pytest_configure(config):
                 copyfile(config.option.topology_file, topo_file_path)
                 os.chmod(topo_file_path, 0o775)
 
-                #If topology_file is given, and  attribute is present,
-                #then, save this attibute in a variable called debug_server which will be
-                #host to run debug services like registrationa and collector
                 topo_obj = Topology(CafyLog.topology_file)
-                debug_server = topo_obj.get_debug_server_name()
                 logstash_port = topo_obj.get_logstash_port()
                 logstash_server_name = topo_obj.get_logstash_server_name()
 
@@ -423,11 +407,6 @@ def pytest_configure(config):
 
                 if logstash_port is not None:
                     CafyLog.logstash_port = logstash_port
-
-                if debug_server is not None:
-                    CafyLog.debug_server = debug_server
-                    log = CafyLog("cafy")
-                    log.info("CafyLog.debug_server : %s" %CafyLog.debug_server )
             else:
                 #TODO: Address how u want to save topo file to archive if it is an url
                 topo_file = None
@@ -504,47 +483,6 @@ def pytest_configure(config):
             if os.environ.get("hybrid_mode", None):
                 del os.environ["hybrid_mode"]
 
-        #Debug Registration Server code
-
-        reg_dict = {}
-        if cafykit_debug_enable: #If user wants to enable our cafy's debug
-            os.environ['cafykit_debug_enable'] = 'True' # Set this environ variable to be used in session_finish()
-            params = {"test_suite":script_name, "test_id":0,
-                    "debug_server_name":CafyLog.debug_server}
-            test_bed_file = CafyLog.topology_file
-            input_file = CafyLog.test_input_file
-
-            files = {'testbed_file': open(test_bed_file, 'rb'),
-                    'input_file': open(input_file, 'rb')}
-
-
-            if CafyLog.debug_server is None: #Ask if we have to consider a default name
-                print("debug_server name not provided in topo file")
-            else:
-                try:
-                    url = 'http://{0}:5001/create/'.format(CafyLog.debug_server)
-                    log.info("Calling Registration service to register the test execution (url:%s)" %url)
-                    response = _requests_retry(log, url, 'POST', files=files, data=params, timeout = 300)
-                    if response.status_code == 200:
-                        #reg_dict will contain testbed, input, debug files and reg_id
-                        reg_dict = response.text # This reg_dict is a string of dict
-                        reg_dict = json.loads(reg_dict)
-                        registration_id = reg_dict['reg_id']
-                        log.info("Registration ID: %s" %registration_id)
-                        CafyLog.registration_id = registration_id
-                        with open(os.path.join(CafyLog.work_dir, "cafy_reg_id.txt"), "w") as f:
-                            f.write(CafyLog.registration_id)
-                        log.title("Start run for registration id: %s" % CafyLog.registration_id)
-                        # log.set_registration_id(registration_id=registration_id)
-                    else:
-                        reg_dict = {}
-                        log.info("Registration server returned code %d " % response.status_code)
-                except Exception as e:
-                        log.warning("Http call to registration service url:%s is not successful" % url)
-                        log.warning("Error {}".format(e))
-        else:
-            reg_dict = {}
-
         config._email = EmailReport(email_list,
                                     email_from,
                                     email_from_passwd,
@@ -554,9 +492,7 @@ def pytest_configure(config):
                                     no_detail_message,
                                     topo_file,
                                     script_list,
-                                    reg_dict,
-                                    collection_list,
-                                    cafypdb)
+                                    collection_list)
         config.pluginmanager.register(config._email)
 
         #Write all.log path to terminal
@@ -564,7 +500,6 @@ def pytest_configure(config):
         #reporter.write_line("all.log location: %s" %CafyLog.work_dir)
         reporter.write_line("Virtual Env: %s" %(os.getenv("VIRTUAL_ENV")))
         reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
-        reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
 
 
 
@@ -587,8 +522,6 @@ def pytest_unconfigure(config):
             f.write(tmp_str_text)
     except:
         pass
-
-
 
 
 def pytest_generate_tests(metafunc):
@@ -677,59 +610,7 @@ def pytest_collection_modifyitems(session, config, items):
     else:
         CafyLog.first_test = None
 
-    if config.option.enable_live_update:
-        log.info("Live logging the status of testcases enabled.")
-        os.environ['enable_live_update'] = 'True'
-        #Send the registration_id to CAFY_API_HOST for live logging
-        CAFY_API_HOST = os.environ.get('CAFY_API_HOST')
-        CAFY_RUN_ID = os.environ.get('CAFY_RUN_ID')
-        CAFY_API_KEY = os.environ.get('CAFY_API_KEY')
-        log.info("CAFY_API_HOST:{0}, CAFY_RUN_ID:{1},  CAFY_API_KEY:{2}".format(CAFY_API_HOST, CAFY_RUN_ID, CAFY_API_KEY))
-        headers = {'Content-Type': 'application/json',
-                   'Authorization': 'Bearer {}'.format(os.environ.get('CAFY_API_KEY'))}
-        try:
-            if CafyLog.registration_id:
-                url = '{0}/api/runs/{1}'.format(os.environ.get('CAFY_API_HOST'), os.environ.get('CAFY_RUN_ID'))
-                log.info("url: {}".format(url))
-                log.info("Calling API service for live logging of reg_id ")
-                params = {"reg_id": CafyLog.registration_id}
-                response = requests.patch(url, json=params, headers=headers, timeout=120)
-                if response.status_code == 200:
-                    log.info("Calling API service for live logging of reg_id successful")
-                else:
-                    log.warning("Calling API service for live logging of reg_id failed")
-            else:
-                log.warning("registration_id is not set, therefore not sending it to API service for live logging")
-        except Exception as e:
-            log.warning("Error while sending the reg_id to live logging's api server: {}".format(e))
-
-        #Send the TestCases and its status(upcoming) collected to http://cafy3-dev-lnx:3100 for live logging
-        try:
-            for item in items:
-                if not item.get_closest_marker('Future'):  #Exclude the Future marked testcases to be shown as upcoming
-                    nodeid = item.nodeid.split('::()::')
-                    finer_nodeid = nodeid[0].split('::')
-                    class_name = finer_nodeid[-1]
-                    d = dict()
-                    d["case_name"] = '.'.join([class_name, item.name]) # To get the testcase_name in format of className.functionName as per allure xml
-                    d["case_name"] = get_testcase_name(item.nodeid)
-                    d["status"] = "upcoming"
-                    CafyLog.collected_testcases.append(d)
-            url = '{0}/api/runs/{1}/cases'.format(os.environ.get('CAFY_API_HOST'), os.environ.get('CAFY_RUN_ID'))
-            log.debug("url: {}".format(url))
-            log.debug("Calling API service for live logging of collected testcases ")
-            response = requests.post(url, json=CafyLog.collected_testcases, headers=headers, timeout=120)
-            if response.status_code == 200:
-                log.info("Calling API service for live logging of collected testcases successful")
-            else:
-                log.warning("Calling API service for live logging of collected testcases failed")
-
-        except Exception as e:
-            log.warning("Error while sending the live status of testcases collected: {}".format(e))
-
-
-
-
+    
 def get_datentime():
     '''return date and time as string'''
     _time = time.time()
@@ -771,7 +652,7 @@ class EmailReport(object):
     START_TIME = time.asctime(time.localtime(START.timestamp()))
 
     def __init__(self, email_addr_list, email_from, email_from_passwd,
-                 smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict, collection_list, cafypdb):
+                 smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, collection_list):
         '''
         @param email_addr_list: list of email address to which email needs to
         be sent.
@@ -789,8 +670,6 @@ class EmailReport(object):
         @type smtp_port: int
         @type no_email: bool
         @type script_listL list
-        @param reg_dict : registration_dict for debug containing testbed file, input file,
-                            debug file and reg_id
         '''
         self.email_addr_list = email_addr_list
         self.email_from = email_from
@@ -801,11 +680,8 @@ class EmailReport(object):
         self.no_detail_message = no_detail_message
         self.script_list = script_list
         self.topo_file = topo_file
-        self.reg_dict = reg_dict
         self.log = CafyLog("cafy")
-        self.rclog = CafyLog("debug-rc")
         self.errored_testcase_count = {}
-        self.analyzer_testcase = {}
         self.tabulate_html = None
         self.allure_html_report = None
         # using the first item of the script list for archive name as in most
@@ -840,10 +716,7 @@ class EmailReport(object):
         self.collection_manager = None
         self.collection_report = {'model_coverage':None,'collector_lsan':None,'collector_asan':None,'collector_yang':None}
         self.collection = collection_list
-        self.debug_collector = False
-        self.cafypdb = cafypdb
         self.debugger_quit = False
-        self.cafypdb_user_action = ''
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -983,38 +856,10 @@ class EmailReport(object):
         except Exception:
             pass
 
-    def initiate_analyzer(self, reg_id, test_case, debug_server):
-        headers = {'content-type': 'application/json'}
-
-        params = {"test_case": test_case,
-                  "reg_id": reg_id,
-                  "debug_server_name": debug_server}
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/initiate_analyzer/".format(CafyLog.debug_server)
-                self.log.info("Calling registration service (url:%s) to initialize analyzer" % url)
-                response = _requests_retry(self.log, url, 'POST', data=params, timeout=300)
-                if response.status_code == 200:
-                    self.log.info("Analyzer initialized")
-                    return True
-                else:
-                    self.log.warning("Analyzer failed %d" % response.status_code)
-                    return False
-            except Exception as e:
-                self.log.warning("Http call to registration service url:%s is not successful" % url)
-                self.log.warning("Error {}".format(e))
-                return False
-
     def pytest_runtest_setup(self, item):
         test_case = self.get_test_name(item.nodeid)
         self.log.set_testcase(test_case)
-        if item == CafyLog.first_test and self.reg_dict:
-            reg_id = self.reg_dict['reg_id']
-            debug_server = CafyLog.debug_server
-            self.initiate_analyzer(reg_id, test_case, debug_server)
-
+        
     def pytest_runtest_teardown(self, item, nextitem):
         if nextitem is None:
             self.log.set_testcase("Teardown")
@@ -1044,43 +889,7 @@ class EmailReport(object):
                                                                 %(arg, CafyLog._triggerFlags[arg]))
                     #pytest.fail("Failing this testcase automatically as this has triggered condition %s" % arg)
 
-    def post_testcase_status(self, reg_id, test_case, debug_server):
-        analyzer_status = False
-        headers = {'content-type': 'application/json'}
-
-        params = {"test_case": test_case,
-                  "reg_id": reg_id,
-                  "debug_server_name": debug_server}
-
-        try:
-            analyzer_status = self.check_analyzer_status(params, headers)
-            if not analyzer_status:
-                self.log.info("Analyzer still working, Continuing Test case")
-        except Exception as err:
-            self.log.info("Exception hit while checking analyzer status {}".format(repr(err)))
-            self.log.info("Analysis Failed exiting check")
-            analyzer_status = False
-
-        return analyzer_status
-
-    def check_analyzer_status(self, params, headers):
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/end_test_case/".format(CafyLog.debug_server)
-                self.log.info("Calling registration service (url:%s) to check analyzer status" % url)
-                response = _requests_retry(self.log, url, 'GET', data=params, timeout=60)
-                if response.status_code == 200:
-                    return response.json()['analyzer_status']
-                else:
-                    self.log.info("Analyzer status check failed %d" % response.status_code)
-                    raise CafyException.CafyBaseException("Analyzer is failing")
-            except Exception as e:
-                self.log.info("Http call to registration service url:%s is not successful" % url)
-                self.log.info("Error {}".format(e))
-                raise CafyException.CafyBaseException("Analyzer is failing")
-
+    
     @pytest.hookimpl(trylast=True, hookwrapper=True)
     def pytest_runtest_makereport(self, item, call):
         report = yield
@@ -1277,37 +1086,8 @@ class EmailReport(object):
         if report.when == 'setup':
             self.log.set_testcase(testcase_name)
             self.log.title("Start test:  %s" %(testcase_name))
-            #Notify testcase_name to handshake server
-            #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to handshake server
-            if self.reg_dict:
-                params = {"testcase_name": testcase_name}
-                headers = {'content-type': 'application/json'}
-                if CafyLog.debug_server is None:
-                    self.log.error("debug_server name not provided in topology file")
-                else:
-                    try:
-                        url = 'http://{0}:5001/registertest/'.format(CafyLog.debug_server)
-                        #self.log.info("Calling registration service to start handshake(url:%s" % url)
-                        response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
-                        if response.status_code == 200:
-                            self.log.info("Handshake to registration service successful")
-                        else:
-                            self.log.warning("Handshake part of registration server returned code %d " % response.status_code)
-                    except Exception as e:
-                        self.log.warning("Error {}".format(e))
-                        self.log.warning("Http call to registration service url:%s is not successful" % url)
-
-
-
+            
         if report.when == 'teardown':
-            if self.reg_dict:
-                reg_id = self.reg_dict.get('reg_id')
-                test_class = report.nodeid.split('::')[1]
-                if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
-                    analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
-                    self.log.info('Analyzer Status is {}'.format(analyzer_status))
-                else:
-                    self.log.info('Analyzer is not invoked as testcase failed in setup')
             status = "unknown"
             if testcase_name in self.testcase_dict:
                 # if error occur during module teardown then marking status as failed and adding stack_exception
@@ -1352,30 +1132,6 @@ class EmailReport(object):
                 except Exception:
                     pass
 
-            if os.environ.get('enable_live_update'):
-                # Send the testcasename and its status along with failtrace if any to the live logging API service
-                headers = {'Content-Type': 'application/json',
-                                   'Authorization': 'Bearer {}'.format(os.environ.get('CAFY_API_KEY'))}
-                try:
-                    for item in CafyLog.collected_testcases:
-                        if testcase_name in item.values():
-                            item['status'] = self.testcase_dict[testcase_name].status
-                            item['fail_log'] = self.testcase_dict[testcase_name].text_message
-                            if testcase_name in self.testcase_failtrace_dict:
-                                item['fail_log'] = CafyLog.fail_log_msg
-                    url = '{0}/api/runs/{1}/cases'.format(os.environ.get('CAFY_API_HOST'),
-                                                                 os.environ.get('CAFY_RUN_ID'))
-                    # self.log.debug("url: {}".format(url))
-                    # self.log.debug("Calling API service for live logging of executed testcases ")
-                    # self.log.debug("JSON = {0}".format(json.dumps(CafyLog.collected_testcases, indent=4, sort_keys=True)))
-                    response = requests.post(url, json=CafyLog.collected_testcases, headers=headers)
-                    if response.status_code == 200:
-                        self.log.info("Calling API service for live logging of executed testcase successful")
-                    else:
-                        self.log.warning("Calling API service for live logging of executed testcases failed")
-
-                except Exception as e:
-                    self.log.warning("Error while sending the live status of executed testcases: {}".format(e))
             """
             1. method:get_method gives output list of methods (one or more than one) presents per testcase
             2. method:get_mode take input of list of methods and gives output as mode such as cli,ydk or oc for each method as list of mode
@@ -1502,480 +1258,7 @@ class EmailReport(object):
         self.check_call_report(item, nextitem)
         return True
 
-    def send_email_for_remote_debugging(self,server_ip_address,available_port, run_id='local_run'):
-        '''
-        Method send_email_for_remote_debugging
-        :param server_ip_address: server_ip_address
-        :param available_port: available_port
-        :param run_id: run_id , default=local_run for local runs
-        :return: send server ip and port info as email notification
-        '''
-        self.log.info(f"Sending email notification for CafyPdb debugging connection for {run_id} to {self.email_addr_list}")
-        msg = MIMEMultipart()
-        doc_link = CafyPdb_Configs.get_cafypdb_doc()
-        msg_body = f"""
-                <html>
-                <body>
-                <p>CafyPdb remote debugging prompt for {run_id} is now available to connect remotely.</p>
-                <p>Connection details: <br>
-                Server_ip: {server_ip_address}, Port: {available_port} </p>
-                <p>Use below telnet command to connect remotely: <br>
-                telnet {server_ip_address} {available_port}</p>
-                <p> Learn more about CafyPdb here: <a href={doc_link}>CafyPdb Documentation</a></p>
-                </body>
-                </html>
-                """
-        part = MIMEText(msg_body, 'html')
-        part['Content-Disposition'] = "inline"
-        msg.attach(part)
-        msg['Subject'] = (f"CafyPdb remote debugging details for run_id: {run_id}")
-        # changing the email_from from cafy-infra@cisco.com to nobody@cisco.com
-        self.email_from = "%s@%s" % ("nobody", "cisco.com")
-        msg['From'] = self.email_from
-        mail_to = COMMASPACE.join(self.email_addr_list)
-        msg['To'] = mail_to
-        msg.add_header('Content-Type', 'text/html')
-        # fixme: add an option to read config from file rather then CLI
-        with smtplib.SMTP(self.smtp_server, self.smtp_port,timeout=60) as mail_server:
-            if self.email_from_passwd:
-                mail_server.ehlo()
-                mail_server.starttls()
-                mail_server.ehlo()
-                mail_server.login(self.email_from, self.email_from_passwd)
-            mail_server.send_message(msg)
-
-    def send_webex_notification(self,server_ip_address,available_port, run_id='local_run'):
-        '''
-        Method: send_webex_notification
-        :param server_ip_address: server_ip_address
-        :param available_port: port
-        :param run_id: run id
-        :return: send notification to user for connection on webex
-        '''
-        try:
-            USER = os.environ.get("CAFY_USER",getpass.getuser())
-            API_KEY = CafyPdb_Configs.get_api_key()
-            URL = CafyPdb_Configs.get_webex_url()
-            doc_link = CafyPdb_Configs.get_cafypdb_doc()
-            data = {
-                "user_id":USER,
-                "server_ip":server_ip_address,
-                "port":available_port,
-                "run_id":run_id,
-                "doc_link":doc_link
-                }
-            data_json = json.dumps(data)
-            headers = {'Content-Type': 'application/json',
-                       'Authorization': 'Bearer {}'.format(API_KEY)}
-            response = requests.post(URL, data=data_json, headers=headers)
-            self.log.info(f"Cafy Debugger: Webex notification sent for remote debbugging connection:{response}")
-        except Exception as e:
-            self.log.info(f"Cafy Debugger:Failed to send webex notification:{e}")
-
-    def send_notification(self,server_ip_address,available_port, run_id):
-        '''
-        Method: send_notification
-        :param server_ip_address: server_ip_address
-        :param available_port: port
-        :return: send notification to user for connection on email and webex
-        '''
-        self.send_email_for_remote_debugging(server_ip_address,available_port, run_id)
-        self.send_webex_notification(server_ip_address,available_port, run_id)
-
-    def start_remote_connection(self,available_port):
-        '''
-        Method start_remote_connection
-        :param: available_port
-        :return: open remote connection
-        '''
-        run_id = os.environ.get("CAFY_RUN_ID", 'local_run')
-        self.send_notification(self.server_ip_address,available_port,run_id)
-        self.log.info(f"Cafy Debugger: Execution Server IP for Remote Pdb Connection: {self.server_ip_address}, and Available Port: {available_port}")
-        #Handle time out if user do not connect in specified time in sec
-        timeout = CafyPdb_Configs.get_connection_timeout()
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout)
-        try:
-            self.remote_debugger = CafyPdb('0.0.0.0', available_port, patch_stdstreams=True)
-            signal.alarm(0)
-        except TimeoutException:
-            # if timeout exception occur the close the port and connection
-            self.log.info(f"Cafy Debugger: Connection timed out")
-            self.close_port(self.available_port)
-
-    def start_remote_pdb(self):
-        """
-        Method start_remote_pdb
-        :param arg: None
-        :return: remote connection
-        """
-        try:
-            self.server_ip_address = self.get_server_ip()
-            self.available_port = self.find_available_port()
-            self.start_remote_connection(self.available_port)
-        except Exception as e:
-            self.log.info(f"Cafy Debugger:Failed to bind the port:{e}")
-
-    def get_server_ip(self):
-        """
-        Method get server ip
-        :param arg: None
-        :return:  Find and return ip address of execution server
-        """
-        hostname = socket.gethostname()
-        ip_address = socket.gethostbyname(hostname)
-        return ip_address
-
-    def find_available_port(self):
-        """
-        Method find_available_port
-        :param arg: None
-        :return:  Find and return an available port on the local machine from user defined range 
-        """
-        start_port = 49152
-        end_port = 65535
-        # Iterate over the range of port numbers and try to bind the socket to each port
-        available_port = None
-        for port in range(start_port, end_port):
-            try:
-                # Create a TCP socket and bind it to the current port
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                # Set socket options to reuse the address
-                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                # Bind the socket to the port
-                self.sock.bind(('0.0.0.0', port))
-                available_port = self.sock.getsockname()[1]
-                break
-            except OSError:
-                # Port is already in use, try the next one
-                pass
-        if available_port == None:
-            return None
-        return available_port
-
-    def close_port(self,port):
-        '''
-        Method close_port
-        :param port: port number
-        :return: close the port
-        '''
-        try:
-            self.sock.close()
-            self.log.info(f"Cafy Debugger: {port} port closed - used for Cafy Debugging")
-        except Exception as e:
-            self.log.info("Cafy Debugger: closing port Failed {}".format(e))
-
-    def pytest_exception_interact(self, node, call, report):
-        '''
-        if cafypdb enabled using --cafypdb then on exception or error init Custom pdb class
-        custom pdb class CafyPdb
-           1: override the default pdb into custom cafypdb
-           2: get execution server ip and port
-           3: invoke Remote connection for cafypdb (Remote Debugging)
-        '''
-        if self.cafypdb:
-            try:
-                testcase_name = self.get_test_name(report.nodeid)
-                self.cafypdb_user_action = self.cafypdb_user_action +  "***********************************************************\n"+f"{testcase_name} : Cafy Debugger Session Started\n"
-                #Start the Remote pdb connection using execution server ip and available user port
-                if self.debugger_quit == False:
-                    self.start_remote_pdb()
-                    if hasattr(self, 'remote_debugger'):
-                        self.log.info("Cafy Debugger: RemotePdb Connection Established")
-                        #Get the traceback object from the excinfo attribute of the call object
-                        exc_tb = call.excinfo.tb
-                        self.remote_debugger.patch_stdstreams = True
-                        #Start the CafyPdb Debugger
-                        self.remote_debugger.post_mortem(exc_tb)
-                        self.cafypdb_user_action = self.cafypdb_user_action +  f"{self.remote_debugger.user_action}"
-                        pdb_exit_commands = ['q','quit','exit']
-                        if self.remote_debugger.lastcmd in pdb_exit_commands:
-                            self.log.info("Cafy Debugger: RemotePdb Session Ended by user")
-                            self.debugger_quit = True
-                        self.cafypdb_user_action = self.cafypdb_user_action +  f"{testcase_name} : Cafy Debugger Session Ended\n" + "***********************************************************" + "\n\n"
-            except Exception as e:
-                self.log.info("Cafy Debugger: Promt Failed {}".format(e))
-            finally:
-                self.close_port(self.available_port)
-
-        if report.failed:
-            CafyLog().fail(str(call.excinfo))
-            if report.outcome == 'failed':
-                #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to collector server
-                if self.reg_dict:
-                    if hasattr(report, 'when'):
-                        if report.when == 'setup':
-                            test_class = node.nodeid.split('::')[1]
-                            if test_class not in self.analyzer_testcase.keys():
-                                self.analyzer_testcase.update({test_class: 1})
-                            else:
-                                self.analyzer_testcase[test_class] += 1
-                            if node.cls not in self.errored_testcase_count:
-                                self.errored_testcase_count[node.cls] = 1
-                            else:
-                                self.errored_testcase_count[node.cls]+=1
-
-                        if (node.cls in self.errored_testcase_count and self.errored_testcase_count[node.cls]==1) or report.when!='setup':
-                            testcase_name = node.name
-                            inherited_classes = []
-                            if node.cls:
-                                class_name = node.cls
-                                base_classes = inspect.getmro(class_name)
-                                for base_class in base_classes:
-                                    if base_class.__name__ not in ["ApBase", "object"]:
-                                        inherited_classes.append(base_class.__name__)
-                                index = 1
-                                if len(base_classes) == 3:
-                                    index = 0
-                                base_class_name = base_classes[index].__name__
-
-
-                                #base_class_name = base_classes[1].__name__
-                            else:
-                                base_class_name = None
-                            if "reg_id" in self.reg_dict:
-                                reg_id = self.reg_dict["reg_id"]
-                            else:
-                                reg_id = '00'
-
-                            exception_type = call.excinfo.type
-                            try:
-                                if issubclass(exception_type, CafyException.CafyBaseException):
-                                    exception_details = call.excinfo.value.get_exception_details()
-                                    self.log.exception_details = exception_details
-                            except:
-                                self.log.info("Error happened while getting exception details for retest")
-
-                            # Check if the exception encountered is not an instance of CafyBaseException, then don't invoke collector service
-                            if not issubclass(exception_type, CafyException.CafyBaseException):
-                                self.log.info(
-                                    "The encountered exception '%s' is not an instance of CafyBaseException, It could be a python built-in exception."
-                                    " Therefore collector service will not be invoked " \
-                                    % exception_type.__name__)
-
-                            else:
-                                collector_exception_name_list = []
-                                collector_actual_obj_dict_list = []
-                                collector_actual_obj_name_list = []
-                                collector_failed_attribute_list = []
-                                rc_exception_name_list = []
-                                rc_actual_obj_dict_list = []
-                                rc_actual_obj_name_list = []
-                                rc_failed_attribute_list = []
-
-                                exception_name = exception_type.__name__
-                                if exception_name == "CompositeError":
-                                    for curr_exception in call.excinfo.value.exceptions:
-                                        exception_type = type(curr_exception).__name__
-                                        call_dict = {}
-                                        if 'VerificationError' in exception_type:
-                                            exception_name = 'VerificationError'
-                                            if hasattr(curr_exception, 'verifier'):
-                                                call_dict['verifier'] = curr_exception.verifier
-                                            if hasattr(curr_exception, 'columns'):
-                                                call_dict['columns'] = curr_exception.columns
-                                        elif 'TgenCheckTrafficError'in exception_type:
-                                            exception_name = 'TgenCheckTrafficError'
-                                            if hasattr(curr_exception, 'item_stats'):
-                                                call_dict['item_stats'] = curr_exception.item_stats
-                                            if hasattr(curr_exception, 'flow_stats'):
-                                                call_dict['flow_stats'] = curr_exception.flow_stats
-                                        else:
-                                            exception_name = 'None'
-
-                                        self.handle_all_exceptions(base_class_name, call_dict, exception_name,
-                                                                   collector_exception_name_list, collector_actual_obj_dict_list,
-                                                                   collector_actual_obj_name_list, collector_failed_attribute_list,
-                                                                   rc_exception_name_list, rc_actual_obj_dict_list,
-                                                                   rc_actual_obj_name_list,
-                                                                   rc_failed_attribute_list)
-                                else:
-                                    call_dict = call.excinfo.value.__dict__
-                                    self.handle_all_exceptions(base_class_name, call_dict, exception_name,
-                                                               collector_exception_name_list, collector_actual_obj_dict_list,
-                                                               collector_actual_obj_name_list, collector_failed_attribute_list,
-                                                               rc_exception_name_list, rc_actual_obj_dict_list,
-                                                               rc_actual_obj_name_list,
-                                                               rc_failed_attribute_list)
-
-                                headers = {'content-type': 'application/json'}
-
-                                if len(collector_actual_obj_dict_list) > 0:
-                                    params = {"testcase_name": testcase_name, "class_name": base_class_name,
-                                              "inherited_classes": inherited_classes,
-                                              "reg_dict": self.reg_dict, "actual_obj_name": collector_actual_obj_name_list,
-                                              "actual_obj_dict": collector_actual_obj_dict_list,
-                                              "failed_attr": collector_failed_attribute_list,
-                                              "debug_server_name": CafyLog.debug_server,
-                                              "exception_name": collector_exception_name_list}
-                                    if report.when == 'setup':
-                                        if hasattr(node.parent, 'cls') and self.debug_collector == False:
-                                            self.debug_collector = True
-                                            response = self.invoke_reg_on_failed_testcase(params, headers)
-                                            if response is not None and response.status_code == 200:
-                                               if response.text:
-                                                   self.log.info("Debug Collector logs: %s" % response.text)
-                                    elif report.when == 'call':
-                                        response = self.invoke_reg_on_failed_testcase(params, headers)
-                                        if response is not None and response.status_code == 200:
-                                            if response.text:
-                                                self.log.info("Debug Collector logs: %s" % response.text)
-
-
-                                if len(rc_actual_obj_dict_list) > 0:
-                                    params = {"testcase_name": testcase_name, "class_name": base_class_name,
-                                              "inherited_classes": inherited_classes,
-                                              "reg_dict": self.reg_dict, "actual_obj_name": rc_actual_obj_name_list,
-                                              "actual_obj_dict": rc_actual_obj_dict_list, "failed_attr": rc_failed_attribute_list,
-                                              "debug_server_name": CafyLog.debug_server,
-                                              "exception_name": rc_exception_name_list}
-                                    response = self.invoke_rc_on_failed_testcase(params, headers)
-                                    if response is not None and response.status_code == 200:
-                                        if response.json().get("traffic_logs"):
-                                            self.rclog.info("Debug RC logs: \n%s" % response.json()["traffic_logs"])
-                    else:
-                        self.log.debug("Type of report obtained is %s. Debug engine is only triggered for reports of type TestReport" %type(report))
-
-    def handle_all_exceptions(self, base_class_name, call_dict, exception_name,
-                              collector_exception_name_list,
-                              collector_actual_obj_dict_list,
-                              collector_actual_obj_name_list,
-                              collector_failed_attribute_list,
-                              rc_exception_name_list,
-                              rc_actual_obj_dict_list,
-                              rc_actual_obj_name_list,
-                              rc_failed_attribute_list):
-        failed_attr = []
-        if (exception_name == "VerificationError") and \
-                bool(call_dict):
-            actual_obj_name = None
-            actual_obj_dict = {}
-            failed_attr = []
-            if 'verifier' in call_dict:
-                actual_obj = call_dict['verifier']
-                actual_obj_name = actual_obj.__class__.__qualname__
-                blacklist_keys = ['log',
-                                  '__compared_to__']  # We dont want to pass these keys and thie values because they r not json serializable
-                actual_obj_dict = {}
-                for key, val in actual_obj.__dict__.items():
-                    if key not in blacklist_keys and is_jsonable(val):
-                        actual_obj_dict[key] = val
-                    else:
-                        self.log.info("json serializable issue in value for key %s" %key)
-                if 'columns' in call_dict:
-                    failed_attr = call_dict['columns']
-                else:
-                    self.log.error("'columns' key not found in %s" %call_dict)
-
-                # Verification errors are sent to Collector, so add to
-                # the collector list to be used for collection service
-                collector_actual_obj_dict_list.append(actual_obj_dict)
-                collector_actual_obj_name_list.append(actual_obj_name)
-                collector_failed_attribute_list.append(failed_attr)
-                collector_exception_name_list.append(exception_name)
-            else:
-                self.log.error("Verification Error encountered , but 'verifier' key not found in %s. "
-                               "The absence of 'verifier' key could be due to this exception not being raised from "
-                               "verification code. Therefore debug engine's collector  won't be invoked " % call_dict)
-
-
-        elif (exception_name == "TgenCheckTrafficError") and \
-                bool(call_dict):
-            #item_stats and flow_stats keys are mandatory in TgenCheckTrafficError exception.
-            # If not, it could be a misuse of exception like being raised without a context
-            if 'item_stats' in call_dict:
-                item_stats = call_dict['item_stats']
-                if 'flow_stats' in call_dict:
-                    flow_stats = call_dict['flow_stats']
-
-                    failed_attr = ["traffic_error"]
-                    actual_obj_dict = {"item_stats": item_stats, "flow_stats": flow_stats}
-                    actual_obj_name = "traffic_stats"
-
-                    # Traffic errors are sent to RC Engine, so add to
-                    # the RC list to be used for RC Engine service
-                    rc_actual_obj_dict_list.append(actual_obj_dict)
-                    rc_actual_obj_name_list.append(actual_obj_name)
-                    rc_failed_attribute_list.append(failed_attr)
-                    rc_exception_name_list.append(exception_name)
-
-                    collector_actual_obj_dict_list.append(None)
-                    collector_actual_obj_name_list.append(None)
-                    collector_failed_attribute_list.append(None)
-                    collector_exception_name_list.append(exception_name)
-                else:
-                    self.log.error("'flow_stats' key not found in %s. "
-                                   "Could be because TgenCheckTrafficError exception is not raised in the context " %call_dict)
-            else:
-                self.log.error("'item_stats' key not found in %s. "
-                               "Could be because TgenCheckTrafficError exception is not raised in the context" % call_dict)
-
-        else:
-            # All other errors are sent to Collector, so add to
-            # the collector list to be used for collection service
-            collector_actual_obj_dict_list.append(None)
-            collector_actual_obj_name_list.append(None)
-            collector_failed_attribute_list.append(failed_attr)
-            collector_exception_name_list.append(exception_name)
-
-
-    def invoke_reg_on_failed_testcase(self, params, headers):
-        """
-        will call debug service api to start collection 
-        :param params: failure details of testcase for given run
-        :param headers: headers associated with api request call
-        """
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/startdebug/v1/".format(CafyLog.debug_server)
-                self.log.info("Calling registration service (url:%s) to start collecting" % url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=1500)
-                if response.status_code == 200:
-                    waiting_time = 0
-                    poll_flag = True
-                    while(poll_flag):
-                        url_status = "http://{0}:5001/collectionstatus/".format(CafyLog.debug_server)
-                        response = _requests_retry(self.log, url_status, 'POST', json=params, headers=headers, timeout=30)
-                        if response.status_code == 200:
-                            message = response.json()
-                            if message["collector_status"] == True:
-                                return response
-                            else:
-                                time.sleep(30)
-                                waiting_time = waiting_time + 30
-                                if waiting_time > 900:
-                                    poll_flag = False
-                        else:
-                            poll_flag = False
-                            self.log.info("collection status api return status other then 200 response %d" % response.status_code)
-                else:
-                    self.log.warning("start_debug part of handshake server returned code %d" % response.status_code)
-                    return None
-            except Exception as e:
-                self.log.warning("Error {}".format(e))
-                self.log.warning("Http call to registration service url:%s is not successful" %url)
-                return None
-
-    def invoke_rc_on_failed_testcase(self, params, headers):
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/startrootcause/".format(CafyLog.debug_server)
-                self.log.info("Calling RC engine to start rootcause (url:%s)" % url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=600)
-                if response.status_code == 200:
-                    return response
-                else:
-                    self.log.warning("startrootcause part of RC engine returned code %d" % response.status_code)
-                    return None
-            except Exception as e:
-                self.log.warning("Error {}".format(e))
-                self.log.warning("Http call to root cause service url:%s is not successful" % url)
-                return None
-
+    
     #method: To dump the mode report as testcase_mode.json file in work_dir
     def dump_hybrid_mode_report(self):
         path=CafyLog.work_dir
@@ -1989,13 +1272,6 @@ class EmailReport(object):
        file_name='model_coverage.json'
        with open(os.path.join(path, file_name), 'w') as fp:
            json.dump(self.model_coverage_report,fp)
-
-    #method: To collect the cafypdb user actions into a file in work_dir
-    def cafypdb_log(self):
-        path=CafyLog.work_dir
-        file_name = "cafypdb.log"
-        with open(os.path.join(path, file_name), 'w') as log_file:
-            log_file.write(self.cafypdb_user_action)
 
     def collect_collection_report(self):
         path=CafyLog.work_dir
@@ -2057,7 +1333,6 @@ class EmailReport(object):
         terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
         terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
         self.collect_collection_report()
-        self.cafypdb_log()
         self._generate_email_report(terminalreporter)
 
         if not self.no_email:
@@ -2127,26 +1402,6 @@ class EmailReport(object):
         except FileNotFoundError:
                 return
 
-    def _get_analyzer_log(self):
-        params = {"reg_id": CafyLog.registration_id,
-                  "debug_server_name": CafyLog.debug_server}
-        url = 'http://{0}:5001/get_analyzer_log/'.format(CafyLog.debug_server)
-        try:
-            response = _requests_retry(self.log, url, 'GET', data=params, timeout=300)
-            if response is not None and response.status_code == 200:
-                if response.text:
-                    if 'Content-Disposition' in response.headers:
-                        analyzer_log_filename = response.headers['Content-Disposition'].split('filename=')[-1]
-                        analyzer_log_file_full_path = os.path.join(CafyLog.work_dir, analyzer_log_filename)
-                        with open(analyzer_log_file_full_path, 'w') as f:
-                            f.write(response.text)
-                            self.log.info('{} saved at {}'.format(analyzer_log_filename, CafyLog.work_dir))
-                    else:
-                        self.log.info("No analyzer log file received")
-        except Exception as e:
-            self.log.warning("Error {}".format(e))
-            self.log.info('No Analyzer log file receiver')
-
 
     def _generate_allure_report(self):
         allure_path = "/auto/cafy/cafykit/allure2/latest/bin/allure"
@@ -2186,49 +1441,6 @@ class EmailReport(object):
         debug_enabled_status = os.getenv("cafykit_debug_enable", None)
 
         self._generate_allure_report()
-
-        if debug_enabled_status and CafyLog.registration_id:
-            self.log.title("End run for registration id: %s" % CafyLog.registration_id)
-            self._get_analyzer_log()
-            params = {"reg_id": CafyLog.registration_id,
-                      "topo_file": CafyLog.topology_file,
-                      "input_file": CafyLog.test_input_file}
-            headers = {'content-type': 'application/json'}
-            try:
-                url = 'http://{0}:5001/uploadcollectorlogfile/'.format(CafyLog.debug_server)
-                print("url = ", url)
-                self.log.info("Calling registration upload collector logfile service (url:%s)" %url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
-                if response is not None and response.status_code == 200:
-                    if response.text:
-                        summary_log = response.text
-                        if '+'*120 in response.text:
-                            summary_log, verbose_log = response.text.split('+'*120)
-
-                        self.log.info ("Debug Collector logs: %s" %(summary_log))
-                        if 'Content-Disposition' in response.headers:
-                            debug_collector_log_filename = response.headers['Content-Disposition'].split('filename=')[-1]
-                            collector_log_file_full_path = os.path.join(CafyLog.work_dir,debug_collector_log_filename)
-                            with open(collector_log_file_full_path, 'w') as f:
-                                f.write(response.text)
-                            try:
-                                DebugLibrary.convert_collector_logs_to_json(collector_log_file_full_path)
-                            except:
-                                self.log.info("Failed to convert collector logs to json")
-                        else:
-                            self.log.info("No collector log file received")
-
-                url = 'http://{0}:5001/deleteuploadedfiles/'.format(CafyLog.debug_server)
-                self.log.info("Calling registration delete upload file service (url:%s)" % url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
-                if response.status_code == 200:
-                    self.log.info("Topology and input files deleted from registration server")
-                else:
-                    self.log.info("Error in deleting topology and input files from registration server")
-            except Exception as e:
-                self.log.warning("Error {}".format(e))
-                self.log.info("Error in uploading collector logfile")
-
         try:
             with open(os.path.join(CafyLog.work_dir, "retest_data.json"), "w") as f:
                 f.write(json.dumps(self.log.buffer_to_retest, indent=4))
@@ -2240,32 +1452,7 @@ class EmailReport(object):
 
         if self.collection:
             self.collection_manager.deconfigure()
-        '''
-        line_regex = re.compile(r"\-\w*\-{1,}\-\d{4}\-\d{2}\-\d{2}T\d*\-\d*\-\d*\[([\w\-:]*)\](\[.*\])?>")
-        log_filename = os.path.join(CafyLog.work_dir, 'all.log')
-        if os.path.exists(log_filename):
-            output_filepath = None
-            with open(log_filename, "r") as in_file:
-                # Open input file in 'read' mode and loop over each log line
-                for line in in_file:
-                    # If log line matches our regex, print to console, and output file
-                    output = line_regex.search(line)
-                    if output:
-                        if output.group(1) == 'MainThread':
-                            pass
-                        else:
-                            output_filename = "thread_"+ output.group(1) + ".log"
-                            output_filepath = os.path.join(CafyLog.work_dir, output_filename)
-                            with open(output_filepath, "a") as out_file:
-                                print(line)
-                                out_file.write(line)
-                    else:
-                        if output_filepath:
-                            with open(output_filepath, "a") as out_file:
-                                print(line)
-                                out_file.write(line)
-        '''
-
+        
 class CafyReportData(object):
 
     '''cafy email report class'''
