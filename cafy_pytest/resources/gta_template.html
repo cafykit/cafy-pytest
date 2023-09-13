@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Granular Time Accounting Report</h1>
+    <table>
+        <tr>
+            <th>Test Case</th>
+            <th>Total Sleep Time(sec)</th>
+            <th>Bash Time(sec)</th>
+            <th>Exec Time(sec)</th>
+            <th>Config Time(sec)</th>
+            <th>Get Level Command Time(sec)</th>
+            <th>Set Level Command Time(sec)</th>
+            <th>Inter Commands Delay Time(sec)</th>
+            <th>Total Execution Time(sec)</th>
+        </tr>
+        {% for key, values in dictionary_data.items() %}
+        <tr>
+            <td>{{ key }}</td>
+            <td>{{ values["Sleep time"]["total_sleep_time"] }}</td>
+            <td>{{ values["Bash time"] }}</td>
+            <td>{{ values["Exec Time"] }}</td>
+            <td>{{ values["Config Time"] }}</td>
+            <td>{{ values["Get level command Time"] }}</td>
+            <td>{{ values["Set level command Time"] }}</td>
+            <td>{{ values["Inter Commands Delay Time"] }}</td>
+            <td>{{ values["Total Execution Time"] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
