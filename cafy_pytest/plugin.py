@@ -44,12 +44,9 @@ from _pytest.runner import runtestprotocol
 from logger.cafylog import CafyLog
 from topology.topo_mgr.topo_mgr import Topology
 from utils.cafyexception import CafyException
-from utils.collectors.confest import Config
 
 from .cafy import Cafy
 
-
-collection_setup = Config()
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
@@ -204,10 +201,6 @@ def pytest_addoption(parser):
             metavar='mongo_mode',
             help='Variable to enable mongo read/write, default is None')
 
-    group.addoption('--collection', action='store', dest='collection',
-            type=str, nargs='+', default=[],
-            help='For additional cafy arguments to enable collection')
-
     
 def is_valid_param(arg, file_type=None):
     if not arg:
@@ -339,8 +332,6 @@ def pytest_configure(config):
     CafyLog.giso_dir = config.option.giso_dir
     script_list = config.option.file_or_dir
     collection_list = []
-    for item in config.option.collection:
-        collection_list.extend(item.split(","))
     # register additional markers
     config.addinivalue_line("markers", "Future(name): mark test that are planned for future")
     config.addinivalue_line("markers", "Feature(name): mark feature of a testcase")
@@ -1037,49 +1028,7 @@ class EmailReport(object):
                         continue
         return method_list
 
-    """
-    Method: generate_collection_config
-       Take collection_config_list and generate
-       collection_config json
-    """
-    def generate_collection_config(self,collection_config_list):
-        collection_config = {'debug': {'enabled': False}, 'lsan': {'enabled': False}, 'asan':{'enabled': False},'yang': {'enabled': False}}
-        for config_key in collection_config_list:
-            if config_key in collection_config:
-                collection_config[config_key]['enabled'] = True
-        path=CafyLog.work_dir
-        file_name='collection_config.json'
-        with open(os.path.join(path, file_name), 'w') as fp:
-            json.dump(collection_config,fp)
-
-    """
-    Method: enable_collection
-       enable_collection is a pytest fixture function which run in the starting of the setup of
-       testcases at the module level
-    if --collection args passed along with pytest cmd
-       eg: --collection = ['lsan','debug','asan','yang','collection-config']
-    then
-       1: Generate collection config based on the pytest args passed by user
-       2: get the topology file
-       3: call collection setup by passing topology file and collection config list
-       4: collection_setup.setup return collection_manager object which can be used for
-          4.1: collection_manager connect
-          4.2: collection_manager configure
-          4.3: collection_manager dconfigure
-          4.4:  collection_manager disconnect
-    """
-    @pytest.fixture(scope='module', autouse=True)
-    def enable_collection(self, request):
-        try:
-            if self.collection:
-                topo_file = CafyLog.topology_file
-                self.generate_collection_config(self.collection)
-                collection_config_file = os.path.join(CafyLog.work_dir, 'collection_config.json')
-                self.collection_manager = collection_setup.setup(topo_file,collection_config_file)
-                self.collection_manager.configure()
-        except Exception as e:
-            self.log.error("Collection Failed")
-
+   
     pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report):
         testcase_name =  self.get_test_name(report.nodeid)
@@ -1450,8 +1399,6 @@ class EmailReport(object):
         with open(summary_file, 'w') as outfile:
             json.dump(_CafyConfig.summary, outfile, indent=4, sort_keys=True)
 
-        if self.collection:
-            self.collection_manager.deconfigure()
         
 class CafyReportData(object):
 
