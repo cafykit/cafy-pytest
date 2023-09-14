@@ -324,7 +324,6 @@ def pytest_configure(config):
     smtp_port = config.option.smtp_port
     no_email = config.option.no_email
     no_detail_message = config.option.no_detail_message
-    cafykit_debug_enable = config.option.debug_enable
     CafyLog.topology_file = config.option.topology_file
     CafyLog.test_input_file = config.option.test_input_file
     CafyLog.tag_file = config.option.tag_file
