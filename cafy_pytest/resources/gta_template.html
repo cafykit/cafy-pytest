@@ -36,7 +36,18 @@
         <tr>
             <td>{{ key }}</td>
             <td>{{ values["Sleep time"]["total_sleep_time"] }}</td>
-            <td>{{ values["Bash time"] }}</td>
+            <td>
+                {% if values['Bash time'] is mapping %}
+                    <!-- Loop through the bash_time_dict and print its key-value pairs -->
+                    <ul>
+                        {% for bash_key, bash_value in values['Bash time'].items() %}
+                        <li>{{ bash_key }}: {{ bash_value }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    {{ values['Bash time'] }}
+                {% endif %}
+            </td>
             <td>{{ values["Exec Time"] }}</td>
             <td>{{ values["Config Time"] }}</td>
             <td>{{ values["Get level command Time"] }}</td>
