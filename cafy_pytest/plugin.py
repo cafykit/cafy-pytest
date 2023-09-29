@@ -41,15 +41,18 @@ from _pytest.terminal import TerminalReporter
 from _pytest.runner import runtestprotocol
 
 # Cafykit imports
+from debug import DebugLibrary
 from logger.cafylog import CafyLog
 from topology.topo_mgr.topo_mgr import Topology
 from utils.cafyexception import CafyException
+from utils.collectors.confest import Config
 
 from .cafy import Cafy
 from .cafy_pdb import CafyPdb
 from .cafypdb_config import CafyPdb_Configs
 
 
+collection_setup = Config()
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
@@ -207,6 +210,11 @@ def pytest_addoption(parser):
     group.addoption('--mongo-mode', action='store', dest='mongo_mode',
             metavar='mongo_mode',
             help='Variable to enable mongo read/write, default is None')
+
+    group.addoption('--collection', action='store', dest='collection',
+            type=str, nargs='+', default=[],
+            help='For additional cafy arguments to enable collection')
+
     group = parser.getgroup('Cafy PDB ')
     group.addoption('--cafypdb', dest='cafypdb', action='store_true',
                     help='Variable to enable cafy PDB, default is False')
@@ -341,6 +349,9 @@ def pytest_configure(config):
     CafyLog.mongomode=config.option.mongo_mode
     CafyLog.giso_dir = config.option.giso_dir
     script_list = config.option.file_or_dir
+    collection_list = []
+    for item in config.option.collection:
+        collection_list.extend(item.split(","))
     cafypdb = config.option.cafypdb
     # register additional markers
     config.addinivalue_line("markers", "Future(name): mark test that are planned for future")
@@ -544,6 +555,7 @@ def pytest_configure(config):
                                     topo_file,
                                     script_list,
                                     reg_dict,
+                                    collection_list,
                                     cafypdb)
         config.pluginmanager.register(config._email)
 
@@ -759,7 +771,7 @@ class EmailReport(object):
     START_TIME = time.asctime(time.localtime(START.timestamp()))
 
     def __init__(self, email_addr_list, email_from, email_from_passwd,
-                 smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict, cafypdb):
+                 smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict, collection_list, cafypdb):
         '''
         @param email_addr_list: list of email address to which email needs to
         be sent.
@@ -825,6 +837,9 @@ class EmailReport(object):
         self.report_dump={}
         self.temp_json={}
         self.model_coverage_report={}
+        self.collection_manager = None
+        self.collection_report = {'model_coverage':None,'collector_lsan':None,'collector_asan':None,'collector_yang':None}
+        self.collection = collection_list
         self.debug_collector = False
         self.cafypdb = cafypdb
         self.debugger_quit = False
@@ -867,13 +882,15 @@ class EmailReport(object):
                            'testcase_failtrace_dict':self.testcase_failtrace_dict,
                            'archive': self.archive,
                            'topo_file': self.topo_file,
+                           'collection_report': self.collection_report,
                            'hybrid_mode_status_dict':self.hybrid_mode_status_dict}
         else:
             cafy_kwargs = {'terminalreporter': terminalreporter,
                            'testcase_dict': self.testcase_dict,
                            'testcase_failtrace_dict':self.testcase_failtrace_dict,
                            'archive': self.archive,
-                           'topo_file': self.topo_file}
+                           'topo_file': self.topo_file,
+                           'collection_report': self.collection_report}
         report = CafyReportData(**cafy_kwargs)
         setattr(report,"tabulate_html", self.tabulate_html)
         template_file = os.path.join(self.CURRENT_DIR,
@@ -1211,8 +1228,50 @@ class EmailReport(object):
                         continue
         return method_list
 
-   
-    @pytest.hookimpl(tryfirst=True)
+    """
+    Method: generate_collection_config
+       Take collection_config_list and generate
+       collection_config json
+    """
+    def generate_collection_config(self,collection_config_list):
+        collection_config = {'debug': {'enabled': False}, 'lsan': {'enabled': False}, 'asan':{'enabled': False},'yang': {'enabled': False}}
+        for config_key in collection_config_list:
+            if config_key in collection_config:
+                collection_config[config_key]['enabled'] = True
+        path=CafyLog.work_dir
+        file_name='collection_config.json'
+        with open(os.path.join(path, file_name), 'w') as fp:
+            json.dump(collection_config,fp)
+
+    """
+    Method: enable_collection
+       enable_collection is a pytest fixture function which run in the starting of the setup of
+       testcases at the module level
+    if --collection args passed along with pytest cmd
+       eg: --collection = ['lsan','debug','asan','yang','collection-config']
+    then
+       1: Generate collection config based on the pytest args passed by user
+       2: get the topology file
+       3: call collection setup by passing topology file and collection config list
+       4: collection_setup.setup return collection_manager object which can be used for
+          4.1: collection_manager connect
+          4.2: collection_manager configure
+          4.3: collection_manager dconfigure
+          4.4:  collection_manager disconnect
+    """
+    @pytest.fixture(scope='module', autouse=True)
+    def enable_collection(self, request):
+        try:
+            if self.collection:
+                topo_file = CafyLog.topology_file
+                self.generate_collection_config(self.collection)
+                collection_config_file = os.path.join(CafyLog.work_dir, 'collection_config.json')
+                self.collection_manager = collection_setup.setup(topo_file,collection_config_file)
+                self.collection_manager.configure()
+        except Exception as e:
+            self.log.error("Collection Failed")
+
+    pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report):
         testcase_name =  self.get_test_name(report.nodeid)
         if report.when == 'setup':
@@ -1237,6 +1296,8 @@ class EmailReport(object):
                     except Exception as e:
                         self.log.warning("Error {}".format(e))
                         self.log.warning("Http call to registration service url:%s is not successful" % url)
+
+
 
         if report.when == 'teardown':
             if self.reg_dict:
@@ -1936,6 +1997,17 @@ class EmailReport(object):
         with open(os.path.join(path, file_name), 'w') as log_file:
             log_file.write(self.cafypdb_user_action)
 
+    def collect_collection_report(self):
+        path=CafyLog.work_dir
+        if os.path.exists(os.path.join(path, 'model_coverage.json')):
+            self.collection_report['model_coverage'] = os.path.join(path, 'model_coverage.json')
+        if os.path.exists(os.path.join(path, 'lsan')):
+            self.collection_report['collector_lsan'] = os.path.join(path, 'lsan')
+        if os.path.exists(os.path.join(path, 'asan')):
+            self.collection_report['collector_asan'] = os.path.join(path, 'asan')
+        if os.path.exists(os.path.join(path, 'yang')):
+            self.collection_report['collector_yang'] = os.path.join(path, 'yang')
+
     def pytest_terminal_summary(self, terminalreporter):
         '''this hook is the execution point of email plugin'''
         #self._generate_email_report(terminalreporter)
@@ -1984,6 +2056,7 @@ class EmailReport(object):
         self.dump_model_coverage_report()
         terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
         terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
+        self.collect_collection_report()
         self.cafypdb_log()
         self._generate_email_report(terminalreporter)
 
@@ -2138,6 +2211,10 @@ class EmailReport(object):
                             collector_log_file_full_path = os.path.join(CafyLog.work_dir,debug_collector_log_filename)
                             with open(collector_log_file_full_path, 'w') as f:
                                 f.write(response.text)
+                            try:
+                                DebugLibrary.convert_collector_logs_to_json(collector_log_file_full_path)
+                            except:
+                                self.log.info("Failed to convert collector logs to json")
                         else:
                             self.log.info("No collector log file received")
 
@@ -2161,6 +2238,33 @@ class EmailReport(object):
         with open(summary_file, 'w') as outfile:
             json.dump(_CafyConfig.summary, outfile, indent=4, sort_keys=True)
 
+        if self.collection:
+            self.collection_manager.deconfigure()
+        '''
+        line_regex = re.compile(r"\-\w*\-{1,}\-\d{4}\-\d{2}\-\d{2}T\d*\-\d*\-\d*\[([\w\-:]*)\](\[.*\])?>")
+        log_filename = os.path.join(CafyLog.work_dir, 'all.log')
+        if os.path.exists(log_filename):
+            output_filepath = None
+            with open(log_filename, "r") as in_file:
+                # Open input file in 'read' mode and loop over each log line
+                for line in in_file:
+                    # If log line matches our regex, print to console, and output file
+                    output = line_regex.search(line)
+                    if output:
+                        if output.group(1) == 'MainThread':
+                            pass
+                        else:
+                            output_filename = "thread_"+ output.group(1) + ".log"
+                            output_filepath = os.path.join(CafyLog.work_dir, output_filename)
+                            with open(output_filepath, "a") as out_file:
+                                print(line)
+                                out_file.write(line)
+                    else:
+                        if output_filepath:
+                            with open(output_filepath, "a") as out_file:
+                                print(line)
+                                out_file.write(line)
+        '''
 
 class CafyReportData(object):
 
@@ -2172,11 +2276,12 @@ class CafyReportData(object):
     testcase = namedtuple('testcase', ['name', 'result', 'fail_log', 'url'])
     summary = namedtuple('summary', ['passed', 'failed', 'not_run', 'total'])
 
-    def __init__(self, terminalreporter, testcase_dict, testcase_failtrace_dict, archive, topo_file, hybrid_mode_status_dict=None):
+    def __init__(self, terminalreporter, testcase_dict, testcase_failtrace_dict, archive, topo_file, hybrid_mode_status_dict=None, collection_report=None):
         self.terminalreporter = terminalreporter
         self.testcase_dict = testcase_dict
         self.testcase_failtrace_dict = testcase_failtrace_dict
         self.hybrid_mode_status_dict=hybrid_mode_status_dict
+        self.collection_report_dict = collection_report
         self.start = EmailReport.START
         self.start_time = EmailReport.START_TIME
         # Basic details
