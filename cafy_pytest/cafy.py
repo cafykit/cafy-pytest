@@ -54,7 +54,7 @@ class Cafy:
             self.title=title
 
         def __enter__(self):
-            log.title(f" Start of step: {self.title}")
+            log.banner(f" Start of step: {self.title}")
             super().__enter__()
 
         def __exit__(self, exc_type, exc_val, exc_tb):
@@ -66,7 +66,7 @@ class Cafy:
                         exc_type=exc_type,
                         exc_tb=exc_tb))
                     Cafy.RunInfo.active_exceptions.append(exc_val)
-            log.title(f" Finish of step: {self.title}")
+            log.banner(f" Finish of step: {self.title}")
             return not self.blocking
 
         
