@@ -1630,7 +1630,7 @@ class EmailReport(object):
         """
         Method find_available_port
         :param arg: None
-        :return:  Find and return an available port on the local machine from user defined range 
+        :return:  Find and return an available port on the local machine from user defined range
         """
         start_port = 49152
         end_port = 65535
@@ -1814,12 +1814,17 @@ class EmailReport(object):
                                             response = self.invoke_reg_on_failed_testcase(params, headers)
                                             if response is not None and response.status_code == 200:
                                                if response.text:
-                                                   self.log.info("Debug Collector logs: %s" % response.text)
+                                                   self.log.info("Setup: Debug Collector logs: %s" % response.text)
                                     elif report.when == 'call':
                                         response = self.invoke_reg_on_failed_testcase(params, headers)
                                         if response is not None and response.status_code == 200:
                                             if response.text:
-                                                self.log.info("Debug Collector logs: %s" % response.text)
+                                                self.log.info("Test: Debug Collector logs: %s" % response.text)
+                                    elif report.when == 'teardown':
+                                        response = self.invoke_reg_on_failed_testcase(params, headers)
+                                        if response is not None and response.status_code == 200:
+                                            if response.text:
+                                                self.log.info("Teardown: Debug Collector logs: %s" % response.text)
 
 
                                 if len(rc_actual_obj_dict_list) > 0:
@@ -1921,7 +1926,7 @@ class EmailReport(object):
 
     def invoke_reg_on_failed_testcase(self, params, headers):
         """
-        will call debug service api to start collection 
+        will call debug service api to start collection
         :param params: failure details of testcase for given run
         :param headers: headers associated with api request call
         """
