@@ -270,7 +270,7 @@ def is_jsonable(val):
     except:
         return False
 
-def _requests_retry(logger, url, method, data=None, files=None,  headers=None, timeout=None, **kwargs):
+def _requests_retry(logger, url, method, data=None, files=None,  headers=None, timeout=None, retry_count=5, **kwargs):
     """ Retry Connection to server and database.
 
     Args:
@@ -285,7 +285,7 @@ def _requests_retry(logger, url, method, data=None, files=None,  headers=None, t
         _requests_retry(url, 'POST', data=json.dumps(context,
                              default=json_serial))
     """
-    retries = Retry(total=5,
+    retries = Retry(total=retry_count,
                     backoff_factor=1,
                     status_forcelist=[502, 503, 504, 404])
     s = requests.Session()
@@ -1070,7 +1070,7 @@ class EmailReport(object):
             try:
                 url = "http://{0}:5001/end_test_case/".format(CafyLog.debug_server)
                 self.log.info("Calling registration service (url:%s) to check analyzer status" % url)
-                response = _requests_retry(self.log, url, 'GET', data=params, timeout=60)
+                response = _requests_retry(self.log, url, 'GET', data=params, timeout=30, retry_count=2)
                 if response.status_code == 200:
                     return response.json()['analyzer_status']
                 else:
