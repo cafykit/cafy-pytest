@@ -203,7 +203,7 @@
             <button class="button_Warning" data-text-swap="Enable Warning Filter" data-text-original="Disable Warning Filter">Disable Warning Filter</button>
           {% endif %}
           {% if "OUT" in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Out" data-text-swap="Disable Out Filter" data-text-original="Enable Out Filter">Enable Out Filter</button>
+            <button class="button_Out" data-text-swap="Enable Out Filter" data-text-original="Disable Out Filter">Disable Out Filter</button>
           {% endif %}
           <div class="panel-body">
             {% for log_line in log_grouping.get_log_lines() %}

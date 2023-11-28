@@ -1085,9 +1085,28 @@ class EmailReport(object):
     def pytest_runtest_makereport(self, item, call):
         report = yield
         result = report.get_result()
+
         if call.when == "teardown":
             stdout_html = self._convert_to_html(result.capstdout)
-            allure.attach(stdout_html, 'test_log','text/html')
+            log_file_name = os.path.join('/tmp', "test_log_raw")
+
+            with open(log_file_name, 'w') as output_file:
+                output_file.write(result.capstdout)
+            try:
+                input_file_handler = open(log_file_name, 'r')
+                all_log_groupings = self._parse_all_log(input_file_handler)
+                import pdb;pdb.set_trace()
+                template_file_name = os.path.join(self.CURRENT_DIR,
+                                        "resources/all_log_template.html")
+                with open(template_file_name) as html_src:
+                    html_template = html_src.read()
+                    template = Template(html_template)
+                stdout_html = template.render(log_groupings = all_log_groupings)
+            except FileNotFoundError:
+                    return
+            finally:
+                allure.attach(stdout_html, 'test_log','text/html')
+                os.remove(log_file_name)
 
         if call.when == "call" and Cafy.RunInfo.active_exceptions:
             try:
@@ -1469,6 +1488,7 @@ class EmailReport(object):
                         self.testcase_failtrace_dict[testcase_name] = None
                 else:
                     self.temp_json["stack_exception"]= ""
+    
 
     def check_call_report(self, item, nextitem):
         """
@@ -2086,6 +2106,8 @@ class EmailReport(object):
 
         all_log_groupings = []
         for log_line in input_file_handler:
+            escape_re = re.compile(r'\x1b\[[0-9;]*m')
+            log_line = re.sub(escape_re, "", log_line)
             if separator_line.search(log_line):
                 continue
             elif start_test_line.search(log_line):
