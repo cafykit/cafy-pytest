@@ -1088,25 +1088,18 @@ class EmailReport(object):
 
         if call.when == "teardown":
             stdout_html = self._convert_to_html(result.capstdout)
-            log_file_name = os.path.join('/tmp', "test_log_raw")
-
-            with open(log_file_name, 'w') as output_file:
-                output_file.write(result.capstdout)
             try:
-                input_file_handler = open(log_file_name, 'r')
-                all_log_groupings = self._parse_all_log(input_file_handler)
-                import pdb;pdb.set_trace()
+                all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
                 template_file_name = os.path.join(self.CURRENT_DIR,
                                         "resources/all_log_template.html")
                 with open(template_file_name) as html_src:
                     html_template = html_src.read()
                     template = Template(html_template)
                 stdout_html = template.render(log_groupings = all_log_groupings)
-            except FileNotFoundError:
-                    return
+            except Exception as e:
+                self.log.warning("Error while adding html filters to test_log {}".format(e))
             finally:
                 allure.attach(stdout_html, 'test_log','text/html')
-                os.remove(log_file_name)
 
         if call.when == "call" and Cafy.RunInfo.active_exceptions:
             try:
