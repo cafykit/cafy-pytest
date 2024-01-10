@@ -149,13 +149,13 @@
           </div>
           <div id="collapse{{loop.index}}" class="panel-collapse collapse" role="tabpanel" aria-labelledby="heading{{loop.index}}">
             <div class="panel-heading">
-              <button class="button-show-all">Show All Logs</button>
-              <button class="button-log" data-log-type="INFO">Select Info Logs</button>
-              <button class="button-log" data-log-type="ERROR">Select Error Logs</button>
-              <button class="button-log" data-log-type="DEBUG">Select Debug Logs</button>
-              <button class="button-log" data-log-type="SUCCESS">Select Success Logs</button>
-              <button class="button-log" data-log-type="WARNING">Select Warning Logs</button>
-              <button class="button-log" data-log-type="OUT">Select Out Logs</button>
+              <button class="button-show-all">All Logs</button>
+              <button class="button-log" data-log-type="INFO">Info Logs</button>
+              <button class="button-log" data-log-type="ERROR">Error Logs</button>
+              <button class="button-log" data-log-type="DEBUG">Debug Logs</button>
+              <button class="button-log" data-log-type="SUCCESS">Success Logs</button>
+              <button class="button-log" data-log-type="WARNING">Warning Logs</button>
+              <button class="button-log" data-log-type="OUT">Out Logs</button>
             </div>
             <div class="panel-body">
               {% for log_type in ["INFO", "ERROR", "DEBUG", "SUCCESS", "WARNING", "OUT"] %}
