@@ -103,15 +103,17 @@ class TimeCollectorPlugin:
         if category not in self.granular_time_testcase_dict[current_test]:
             self.granular_time_testcase_dict[current_test][category] = dict()
             if category == "sleep_time":
-                self.granular_time_testcase_dict[current_test][category]["total_sleep_time"] = float(elapsed_time)
+                self.granular_time_testcase_dict[current_test][category]["sleep_time"] = list()
+                self.granular_time_testcase_dict[current_test][category]["sleep_time"].append(float(elapsed_time))
             elif category == "bash_time" and command:
-                self.granular_time_testcase_dict[current_test][category][str(command)] = elapsed_time
+                self.granular_time_testcase_dict[current_test][category] = dict()
+                self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
         else:
             if category == "sleep_time":
-                    self.granular_time_testcase_dict[current_test][category]["total_sleep_time"] += float(elapsed_time)
+                    self.granular_time_testcase_dict[current_test][category]["sleep_time"].append(float(elapsed_time))
             elif category == "bash_time" and command:
                 if str(command) not in self.granular_time_testcase_dict[current_test][category]:
-                    self.granular_time_testcase_dict[current_test][category][str(command)] = elapsed_time
+                    self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
 
     def pytest_runtest_teardown(self, item, nextitem):
         '''
@@ -121,7 +123,7 @@ class TimeCollectorPlugin:
         end_time = time.perf_counter()
         self.total_execution_time ='%.2f' % (end_time - self.start_time)
         current_test = self.test_case_name
-        self.granular_time_testcase_dict[current_test]["total_time"] = self.total_execution_time
+        self.granular_time_testcase_dict[current_test]["total_execution_time"] = self.total_execution_time
         self.total_execution_time = None
 
     def collect_granular_time_accouting_report(self):
@@ -131,24 +133,24 @@ class TimeCollectorPlugin:
         '''
         time_report = dict()
         for test_case, times in self.granular_time_testcase_dict.items():
-            sleep_time = times.get("sleep_time", 0)
-            total_time = times.get("total_time",0)
-            bash_time = times.get("bash_time",0)
+            total_time = 0
             time_report[test_case] = dict()
-            time_report[test_case]['Sleep time'] = sleep_time
-            time_report[test_case]['Bash time'] = bash_time
-            time_report[test_case]['Exec Time'] = None
-            time_report[test_case]['Config Time'] = None
-            time_report[test_case]['Get level command Time'] = None
-            time_report[test_case]['Set level command Time'] = None
-            time_report[test_case]['Inter Commands Delay Time'] = None
-            time_report[test_case]['Total Execution Time'] = total_time
+            if 'sleep_time' in times:
+                time_report[test_case]['sleep_time'] = times["sleep_time"]
+            else:
+                time_report[test_case]['sleep_time'] =  []
+            if 'bash_time' in times:
+                time_report[test_case]['bash_time'] = times['bash_time']
+            else:
+                time_report[test_case]['bash_time'] = {}
+            time_report[test_case]['total_execution_time'] =  times["total_execution_time"]
         self.granular_time_testcase_dict = time_report
 
 
     def cleanup(self):
         # Restore the original subprocess functions when done
         self.unpatch_subprocess()
+
 
     def pytest_terminal_summary(self, terminalreporter):
         '''

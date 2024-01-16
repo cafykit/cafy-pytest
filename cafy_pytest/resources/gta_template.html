@@ -16,46 +16,67 @@
         th {
             background-color: #f2f2f2;
         }
+
+        .nested {
+            margin-left: 20px;
+        }
     </style>
 </head>
 <body>
     <h1>Granular Time Accounting Report</h1>
     <table>
         <tr>
-            <th>Test Case</th>
-            <th>Total Sleep Time(sec)</th>
-            <th>Bash Time(sec)</th>
-            <th>Exec Time(sec)</th>
-            <th>Config Time(sec)</th>
-            <th>Get Level Command Time(sec)</th>
-            <th>Set Level Command Time(sec)</th>
-            <th>Inter Commands Delay Time(sec)</th>
-            <th>Total Execution Time(sec)</th>
+            <th>Testcase</th>
+            <th>Step</th>
+            <th>Sleep Time</th>̉
+            <th>Set Level Command Time</th>
+            <th>Total Time</th>
         </tr>
-        {% for key, values in dictionary_data.items() %}
-        <tr>
-            <td>{{ key }}</td>
-            <td>{{ values["Sleep time"]["total_sleep_time"] }}</td>
-            <td>
-                {% if values['Bash time'] is mapping %}
-                    <!-- Loop through the bash_time_dict and print its key-value pairs -->
-                    <ul>
-                        {% for bash_key, bash_value in values['Bash time'].items() %}
-                        <li>{{ bash_key }}: {{ bash_value }}</li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    {{ values['Bash time'] }}
+    {% for key, values in dictionary_data.items() %}
+            {% for step_key, step_values in values.items() %}
+                {% if 'sleep_time' in step_key %}
+                    {% for time_key, time_values in step_values.items() %}
+                        <tr>
+                            <td>{{key}}</td>
+                            <td>{{ time_key }}</td>
+                            <td>{{ time_values[0] if time_values else 'NA' }}</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        {% if time_values is iterable and time_values|length > 1 %}
+                            {% for extra_time in time_values[1:] %}
+                                <tr class="nested">
+                                    <td></td>
+                                    <td>{{ time_key }}</td>
+                                    <td>{{ extra_time }}</td>
+                                    <td>NA</td>
+                                    <td>NA</td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                {% elif 'bash_time' in step_key %}
+                    {% for bash_key, bash_value in step_values.items() %}
+                        <tr>
+                            <td></td>
+                            <td>{{ bash_key }}</td>
+                            <td>NA</td>
+                            <td>{{ bash_value }}</td>
+                            <td>NA</td>
+                        </tr>
+                    {% endfor %}
                 {% endif %}
-            </td>
-            <td>{{ values["Exec Time"] }}</td>
-            <td>{{ values["Config Time"] }}</td>
-            <td>{{ values["Get level command Time"] }}</td>
-            <td>{{ values["Set level command Time"] }}</td>
-            <td>{{ values["Inter Commands Delay Time"] }}</td>
-            <td>{{ values["Total Execution Time"] }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+            {% endfor %}
+            <tr>
+                <td></td>
+                <td>Total</td>
+                <td>NA</td>
+                <td>NA</td>
+                <td>
+                    {{values["total_execution_time"]}}
+                </td>
+            </tr>
+    {% endfor %}
+</table>
 </body>
 </html>
