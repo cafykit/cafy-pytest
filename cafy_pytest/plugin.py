@@ -48,8 +48,9 @@ from utils.cafyexception import CafyException
 from utils.collectors.confest import Config
 
 from .cafy import Cafy
-from .cafy_pdb import CafyPdb
-from .cafypdb_config import CafyPdb_Configs
+
+from cafypdb import CafyPdb, RemoteConnection
+from cafypdb import CafyPdb_Configs
 
 
 collection_setup = Config()
@@ -214,11 +215,11 @@ def pytest_addoption(parser):
     group.addoption('--collection', action='store', dest='collection',
             type=str, nargs='+', default=[],
             help='For additional cafy arguments to enable collection')
-
+    '''
     group = parser.getgroup('Cafy PDB ')
     group.addoption('--cafypdb', dest='cafypdb', action='store_true',
                     help='Variable to enable cafy PDB, default is False')
-
+    '''
 
 def is_valid_param(arg, file_type=None):
     if not arg:
@@ -755,8 +756,6 @@ def _setup_env():
 class TimeoutException(Exception):
     pass
 
-def timeout_handler(signum, frame):
-    raise TimeoutException("Connection timed out.")
 
 class EmailReport(object):
 
@@ -1515,6 +1514,7 @@ class EmailReport(object):
         self.check_call_report(item, nextitem)
         return True
 
+    """
     def send_email_for_remote_debugging(self,server_ip_address,available_port, run_id='local_run'):
         '''
         Method send_email_for_remote_debugging
@@ -1526,7 +1526,7 @@ class EmailReport(object):
         self.log.info(f"Sending email notification for CafyPdb debugging connection for {run_id} to {self.email_addr_list}")
         msg = MIMEMultipart()
         doc_link = CafyPdb_Configs.get_cafypdb_doc()
-        msg_body = f"""
+        msg_body = f'''
                 <html>
                 <body>
                 <p>CafyPdb remote debugging prompt for {run_id} is now available to connect remotely.</p>
@@ -1537,7 +1537,7 @@ class EmailReport(object):
                 <p> Learn more about CafyPdb here: <a href={doc_link}>CafyPdb Documentation</a></p>
                 </body>
                 </html>
-                """
+                '''
         part = MIMEText(msg_body, 'html')
         part['Content-Disposition'] = "inline"
         msg.attach(part)
@@ -1556,7 +1556,7 @@ class EmailReport(object):
                 mail_server.ehlo()
                 mail_server.login(self.email_from, self.email_from_passwd)
             mail_server.send_message(msg)
-
+    
     def send_webex_notification(self,server_ip_address,available_port, run_id='local_run'):
         '''
         Method: send_webex_notification
@@ -1617,11 +1617,11 @@ class EmailReport(object):
             self.close_port(self.available_port)
 
     def start_remote_pdb(self):
-        """
+        '''
         Method start_remote_pdb
         :param arg: None
         :return: remote connection
-        """
+        '''
         try:
             self.server_ip_address = self.get_server_ip()
             self.available_port = self.find_available_port()
@@ -1630,21 +1630,21 @@ class EmailReport(object):
             self.log.info(f"Cafy Debugger:Failed to bind the port:{e}")
 
     def get_server_ip(self):
-        """
+        '''
         Method get server ip
         :param arg: None
         :return:  Find and return ip address of execution server
-        """
+        '''
         hostname = socket.gethostname()
         ip_address = socket.gethostbyname(hostname)
         return ip_address
 
     def find_available_port(self):
-        """
+        '''
         Method find_available_port
         :param arg: None
         :return:  Find and return an available port on the local machine from user defined range
-        """
+        '''
         start_port = 49152
         end_port = 65535
         # Iterate over the range of port numbers and try to bind the socket to each port
@@ -1677,6 +1677,7 @@ class EmailReport(object):
             self.log.info(f"Cafy Debugger: {port} port closed - used for Cafy Debugging")
         except Exception as e:
             self.log.info("Cafy Debugger: closing port Failed {}".format(e))
+    """ 
 
     def pytest_exception_interact(self, node, call, report):
         '''
@@ -1691,25 +1692,27 @@ class EmailReport(object):
                 testcase_name = self.get_test_name(report.nodeid)
                 self.cafypdb_user_action = self.cafypdb_user_action +  "***********************************************************\n"+f"{testcase_name} : Cafy Debugger Session Started\n"
                 #Start the Remote pdb connection using execution server ip and available user port
+                self.remote_connection = RemoteConnection()
                 if self.debugger_quit == False:
-                    self.start_remote_pdb()
-                    if hasattr(self, 'remote_debugger'):
+                    self.remote_connection.start_remote_pdb()
+                    if hasattr(self.remote_connection, 'remote_debugger'):
                         self.log.info("Cafy Debugger: RemotePdb Connection Established")
                         #Get the traceback object from the excinfo attribute of the call object
                         exc_tb = call.excinfo.tb
-                        self.remote_debugger.patch_stdstreams = True
+                        remote_debugger = self.remote_connection.remote_debugger
+                        remote_debugger.patch_stdstreams = True
                         #Start the CafyPdb Debugger
-                        self.remote_debugger.post_mortem(exc_tb)
-                        self.cafypdb_user_action = self.cafypdb_user_action +  f"{self.remote_debugger.user_action}"
+                        remote_debugger.post_mortem(exc_tb)
+                        self.cafypdb_user_action = self.cafypdb_user_action +  f"{remote_debugger.user_action}"
                         pdb_exit_commands = ['q','quit','exit']
-                        if self.remote_debugger.lastcmd in pdb_exit_commands:
+                        if remote_debugger.lastcmd in pdb_exit_commands:
                             self.log.info("Cafy Debugger: RemotePdb Session Ended by user")
                             self.debugger_quit = True
                         self.cafypdb_user_action = self.cafypdb_user_action +  f"{testcase_name} : Cafy Debugger Session Ended\n" + "***********************************************************" + "\n\n"
             except Exception as e:
                 self.log.info("Cafy Debugger: Promt Failed {}".format(e))
             finally:
-                self.close_port(self.available_port)
+                self.remote_connection.close_port()
 
         if report.failed:
             CafyLog().fail(str(call.excinfo))
