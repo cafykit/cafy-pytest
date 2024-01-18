@@ -215,11 +215,7 @@ def pytest_addoption(parser):
     group.addoption('--collection', action='store', dest='collection',
             type=str, nargs='+', default=[],
             help='For additional cafy arguments to enable collection')
-    '''
-    group = parser.getgroup('Cafy PDB ')
-    group.addoption('--cafypdb', dest='cafypdb', action='store_true',
-                    help='Variable to enable cafy PDB, default is False')
-    '''
+    
 
 def is_valid_param(arg, file_type=None):
     if not arg:
