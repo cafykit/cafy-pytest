@@ -115,7 +115,7 @@ class ExternalConfig:
         return self.config['CafyPdb']['doc_link']
     
 
-# Create an instance of AppConfig
+# Create an instance of ExternalConfig
 external_config = ExternalConfig()
 
 
