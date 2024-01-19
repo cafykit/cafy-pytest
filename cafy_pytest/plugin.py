@@ -92,6 +92,33 @@ class _CafyConfig:
     allure_server = "file://"
     summary = {}
 
+
+class ExternalConfig:
+    def __init__(self, filename=os.path.join(os.path.dirname(__file__), 'config.json')):
+        self.config = self.read_config(filename)
+
+    def read_config(self, filename):
+        with open(filename, 'r') as file:
+            config = json.load(file)
+        return config
+
+    def get_webex_notification_url(self):
+        return self.config['CafyPdb']['webex_notification_url']
+
+    def get_api_key(self):
+        return self.config['CafyPdb']['API_KEY']
+
+    def get_cafypdb_timeout(self):
+        return self.config['CafyPdb']['cafypdb_timeout']
+    
+    def get_cafypdb_doc_link(self):
+        return self.config['CafyPdb']['doc_link']
+    
+
+# Create an instance of AppConfig
+external_config = ExternalConfig()
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_addoption(parser):
     setattr(pytest,"cafy",Cafy)
@@ -1524,7 +1551,14 @@ class EmailReport(object):
                 testcase_name = self.get_test_name(report.nodeid)
                 self.cafypdb_user_action = self.cafypdb_user_action +  "***********************************************************\n"+f"{testcase_name} : Cafy Debugger Session Started\n"
                 #Start the Remote pdb connection using execution server ip and available user port
-                self.remote_connection = RemoteConnection()
+                
+                cafypdb_config = CafyPdb_Configs()
+                cafypdb_config.set_webex_url(external_config.get_webex_notification_url())
+                cafypdb_config.set_api_key(external_config.get_api_key())
+                cafypdb_config.set_connection_timeout(external_config.get_cafypdb_timeout())
+                cafypdb_config.set_doc_link(external_config.get_cafypdb_doc_link())
+
+                self.remote_connection = RemoteConnection(cafypdb_config)
                 if self.debugger_quit == False:
                     self.remote_connection.start_remote_pdb(email_addr_list=self.email_addr_list)
                     if hasattr(self.remote_connection, 'remote_debugger'):
