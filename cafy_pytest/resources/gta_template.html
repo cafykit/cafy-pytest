@@ -28,20 +28,23 @@
         <tr>
             <th>Testcase</th>
             <th>Step</th>
-            <th>Sleep Time</th>̉
+            <th>Sleep Time</th>
             <th>Set Level Command Time</th>
+            <th>Get Level Command Time</th>
             <th>Total Time</th>
         </tr>
     {% for key, values in dictionary_data.items() %}
-            {% for step_key, step_values in values.items() %}
-                {% if 'sleep_time' in step_key %}
+        {% for step_key, step_values in values.items() %}
+            {% if 'sleep_time' in step_key %}
+                {% if step_values is mapping %}
                     {% for time_key, time_values in step_values.items() %}
                         <tr>
                             <td>{{key}}</td>
                             <td>{{ time_key }}</td>
                             <td>{{ time_values[0] if time_values else 'NA' }}</td>
-                            <td>NA</td>
-                            <td>NA</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
                         </tr>
                         {% if time_values is iterable and time_values|length > 1 %}
                             {% for extra_time in time_values[1:] %}
@@ -49,34 +52,55 @@
                                     <td></td>
                                     <td>{{ time_key }}</td>
                                     <td>{{ extra_time }}</td>
-                                    <td>NA</td>
-                                    <td>NA</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>-</td>
                                 </tr>
                             {% endfor %}
                         {% endif %}
                     {% endfor %}
-                {% elif 'bash_time' in step_key %}
-                    {% for bash_key, bash_value in step_values.items() %}
-                        <tr>
-                            <td></td>
-                            <td>{{ bash_key }}</td>
-                            <td>NA</td>
-                            <td>{{ bash_value }}</td>
-                            <td>NA</td>
-                        </tr>
+                {% endif %}
+            {% elif 'set_command' in step_key %}
+                {% if step_values is mapping %}
+                    {% for set_key, set_value in step_values.items() %}
+                        {% for value in set_value %}
+                            <tr>
+                                <td></td>
+                                <td>{{ set_key }}</td>
+                                <td>-</td>
+                                <td>{{ value }}</td>
+                                <td>-</td>
+                                <td>-</td>
+                            </tr>
+                        {% endfor %}
                     {% endfor %}
                 {% endif %}
-            {% endfor %}
-            <tr>
-                <td></td>
-                <td>Total</td>
-                <td>NA</td>
-                <td>NA</td>
-                <td>
-                    {{values["total_execution_time"]}}
-                </td>
-            </tr>
+            {% elif 'get_command' in step_key %}
+                {% if step_values is mapping %}
+                    {% for get_key, get_value in step_values.items() %}
+                        {% for value in get_value %}
+                            <tr>
+                                <td></td>
+                                <td>{{ get_key }}</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>{{ value }}</td>
+                                <td>-</td>
+                            </tr>
+                        {% endfor %}
+                    {% endfor %}
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+        <tr>
+            <td></td>
+            <td>Total</td>
+            <td>-</td>
+            <td>-</td>
+            <td>-</td>
+            <td>{{values["total_execution_time"]}}</td>
+        </tr>
     {% endfor %}
-</table>
+    </table>
 </body>
 </html>

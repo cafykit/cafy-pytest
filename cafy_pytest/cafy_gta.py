@@ -1,9 +1,6 @@
 import time
-import builtins
-import subprocess
 import pytest
 from logger.cafylog import CafyLog
-import json
 import os
 import inspect
 from jinja2 import Template
@@ -11,11 +8,44 @@ from jinja2 import Template
 class TimeCollectorPlugin:
     def __init__(self):
         self.original_sleep = time.sleep
-        self.original_subprocess_run = subprocess.run
         self.granular_time_testcase_dict = dict()
         self.test_case_name = None
         self.start_time = None
         self.total_execution_time = None
+        self.original_set_methods = {}
+
+    def measure_time_for_set_methods(self, method):
+        """
+        Measure the time taken by set methods.
+        This method wraps set methods to measure their execution time.
+        param method (function): The set method to be measured.
+        Returns: function: The wrapped method.
+        """
+        def wrapper(*args, **kwargs):
+            start_time = time.perf_counter()
+            result = method(*args, **kwargs)
+            end_time = time.perf_counter()
+            elapsed_time = '%.2f' % (end_time - start_time)
+            # Update granular time at the test case level
+            current_test = self.test_case_name
+            if current_test not in self.granular_time_testcase_dict:
+                self.granular_time_testcase_dict[current_test] = dict()
+            method_name = method.__name__
+            if method_name.startswith('set'):
+                if 'set_command' not in self.granular_time_testcase_dict[current_test]:
+                    self.granular_time_testcase_dict[current_test]['set_command'] = dict()
+                if method_name not in self.granular_time_testcase_dict[current_test]['set_command']:
+                    self.granular_time_testcase_dict[current_test]['set_command'][method_name] = []
+                self.granular_time_testcase_dict[current_test]['set_command'][method_name].append(float(elapsed_time))
+            elif method_name.startswith('get'):
+                if 'get_command' not in self.granular_time_testcase_dict[current_test]:
+                    self.granular_time_testcase_dict[current_test]['get_command'] = dict()
+                if method_name not in self.granular_time_testcase_dict[current_test]['get_command']:
+                    self.granular_time_testcase_dict[current_test]['get_command'][method_name] = []
+                self.granular_time_testcase_dict[current_test]['get_command'][method_name].append(float(elapsed_time))
+            return result
+
+        return wrapper
 
     def measure_sleep_time(self, duration):
         '''
@@ -29,38 +59,38 @@ class TimeCollectorPlugin:
         elapsed_time = '%.2f' % (end_time - start_time)
         self.update_granular_time("sleep_time", elapsed_time)
 
-    def measure_subprocess_run(self, *args, **kwargs):
-        '''
-        Method measure_subprocess_run : it will measure the actual time taken by testcase function during executing subprocess run
-        param args : args
-        param kwargs : kwargs
-        return : Update the graunular time at test case level
-        '''
-        start_time = time.perf_counter()
-        # Capture the command
-        command = args[0] if args else None
-        process = self.original_subprocess_run(*args, **kwargs)
-        end_time = time.perf_counter()
-        elapsed_time = '%.2f' % (end_time - start_time)
-        self.update_granular_time("bash_time", elapsed_time, command)
+    def patch_set_methods_for_test_instance(self, item):
+        """
+        Perform setup and teardown actions for test cases.
+        This method performs setup and teardown actions for test cases,including monkey patching sleep and set methods.
+        param request: The test request.
+        Yields: None
+        """
+        test_case_class = item.cls
+        if test_case_class:
+            # Get the module of the test case class
+            module = inspect.getmodule(test_case_class)
+            for class_name, class_obj in inspect.getmembers(module, inspect.isclass):
+                # Iterate over the attributes of the class
+                for method_name, method in inspect.getmembers(class_obj, inspect.isfunction):
+                    # Check if the attribute is callable and its name starts with 'set'
+                    if callable(method) and method_name.startswith('set') or method_name.startswith('get') :
+                        original_method = getattr(class_obj, method_name)
+                        setattr(class_obj, method_name, self.measure_time_for_set_methods(original_method))
 
-    def patch_subprocess(self):
+    @pytest.fixture(autouse=True)
+    def setup_and_teardown(self, request):
         '''
-        Method patch_subprocess : it will Monkey patch subprocess gfor bash commands.
-        Monkey patching used for modifying the behavior of built-in classes or functions, or adding instrumentation or logging to existing code.
-        param item : test case item
-        param  nextitem : test case nextitem
-        return : None
+        Method setup_and_teardown : it will Monkey patch the sleep time, set level command and get level command etc
+        param request: take request
         '''
-        # Monkey patch subprocess.run
-        subprocess.run = self.measure_subprocess_run
-
-    def unpatch_subprocess(self):
-        '''
-        Method unpatch_subprocess : it will Restore the original subprocess functions
-        '''
-        # Restore the original subprocess functions
-        subprocess.run = self.original_subprocess_run
+        self.start_time = time.perf_counter()
+        # Monkey patch time.sleep
+        time.sleep = self.measure_sleep_time
+        # Monkey patch 'set' methods for all classes in the module
+        self.patch_set_methods_for_test_instance(request.node)
+        yield  # This is where the test case runs
+        self.pytest_runtest_teardown(request.node, None)
 
     def pytest_runtest_protocol(self, item, nextitem):
         '''
@@ -70,14 +100,7 @@ class TimeCollectorPlugin:
         param  nextitem : test case nextitem
         return : None
         '''
-        self.start_time = time.perf_counter()
-        # Monkey patch time.sleep
-        time.sleep = self.measure_sleep_time
-
-        #Monkey patch subprocess
-        self.patch_subprocess()
-
-        #get class name of test case method
+        # get class name of the test case method
         base_class_name = ""
         if item.cls:
             class_name = item.cls
@@ -105,23 +128,26 @@ class TimeCollectorPlugin:
             if category == "sleep_time":
                 self.granular_time_testcase_dict[current_test][category]["sleep_time"] = list()
                 self.granular_time_testcase_dict[current_test][category]["sleep_time"].append(float(elapsed_time))
-            elif category == "bash_time" and command:
+            elif category == "set_command" and command:
                 self.granular_time_testcase_dict[current_test][category] = dict()
                 self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
+            elif category == "get_command" and command:
+                self.granular_time_testcase_dict[current_test][category] = dict()
+                self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
+
         else:
             if category == "sleep_time":
                     self.granular_time_testcase_dict[current_test][category]["sleep_time"].append(float(elapsed_time))
-            elif category == "bash_time" and command:
+            elif category == "set_command" and command:
+                if str(command) not in self.granular_time_testcase_dict[current_test][category]:
+                    self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
+            elif category == "get_command" and command:
                 if str(command) not in self.granular_time_testcase_dict[current_test][category]:
                     self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
 
     def pytest_runtest_teardown(self, item, nextitem):
-        '''
-        Method pytest_runtest_call : will measure Total execution time of test case method
-        return : Update the graunular time at test case level
-        '''
         end_time = time.perf_counter()
-        self.total_execution_time ='%.2f' % (end_time - self.start_time)
+        self.total_execution_time = '%.2f' % (end_time - self.start_time)
         current_test = self.test_case_name
         self.granular_time_testcase_dict[current_test]["total_execution_time"] = self.total_execution_time
         self.total_execution_time = None
@@ -133,24 +159,21 @@ class TimeCollectorPlugin:
         '''
         time_report = dict()
         for test_case, times in self.granular_time_testcase_dict.items():
-            total_time = 0
             time_report[test_case] = dict()
             if 'sleep_time' in times:
                 time_report[test_case]['sleep_time'] = times["sleep_time"]
             else:
                 time_report[test_case]['sleep_time'] =  []
-            if 'bash_time' in times:
-                time_report[test_case]['bash_time'] = times['bash_time']
+            if 'set_command' in times:
+                time_report[test_case]['set_command'] = times['set_command']
             else:
-                time_report[test_case]['bash_time'] = {}
+                time_report[test_case]['set_command'] = {}
+            if 'get_command' in times:
+                time_report[test_case]['get_command'] = times['get_command']
+            else:
+                time_report[test_case]['get_command'] = {}
             time_report[test_case]['total_execution_time'] =  times["total_execution_time"]
         self.granular_time_testcase_dict = time_report
-
-
-    def cleanup(self):
-        # Restore the original subprocess functions when done
-        self.unpatch_subprocess()
-
 
     def pytest_terminal_summary(self, terminalreporter):
         '''
@@ -171,4 +194,3 @@ class TimeCollectorPlugin:
         # Write the HTML content to the output file
         with open(html_file_path, 'w') as html_file:
             html_file.write(html_content)
-        self.cleanup()
