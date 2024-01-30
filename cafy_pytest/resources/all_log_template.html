@@ -5,46 +5,29 @@
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
     <style type="text/css">
       body {
-        font-family: 'Courier New', Courier, monospace
+        font-family: 'Courier New', Courier, monospace;
       }
-      .out-log {
-        color: black;
-        white-space: pre;
+      .active-button {
+        background-color: yellow;
+        color: #333;
       }
-      .out-toggle {
-        display: none;
-      }
-      .info-log {
+      .INFO-log {
         color: blue;
-        white-space: pre;
       }
-      .info-toggle {
-        display: block;
-      }
-      .warning-log {
-        color: darkorange;
-      }
-      .warning-toggle {
-        display: block;
-      }
-      .error-log {
+      .ERROR-log {
         color: red;
-        font-weight: bold;
       }
-      .error-toggle {
-        display: block;
-      }
-      .debug-log {
+      .DEBUG-log {
         color: mediumvioletred;
       }
-      .debug-toggle {
-        display: block;
-      }
-      .success-log {
+      .SUCCESS-log {
         color: green;
       }
-      .success-toggle {
-        display: block;
+      .WARNING-log {
+        color: darkorange;
+      }
+      .OUT-log {
+        color: black;
       }
       .panel-group .panel-heading + .panel-collapse > .panel-body {
         border: 1px solid #ddd;
@@ -62,7 +45,7 @@
       }
       .panel-group .panel-heading {
         padding: 0;
-        font-family: Arial,Helvetica Neue,Helvetica,sans-serif; 
+        font-family: Arial, Helvetica Neue, Helvetica, sans-serif;
       }
       .panel-group .panel-heading a {
         display: block;
@@ -80,8 +63,8 @@
         content: '-';
         position: absolute;
         right: 20px;
-        top:5px;
-        font-size:30px;
+        top: 5px;
+        font-size: 30px;
       }
       .panel-group .panel-heading a.collapsed:after {
         content: '+';
@@ -102,131 +85,107 @@
       .panel-group .panel-body ol:last-child {
         margin-bottom: 0;
       }
-
       .panel-title {
         font-size: 12px;
+        cursor: pointer;
       }
-
-    </style>
+    </style>    
   </head>
 
   <body>
-    <h2>Logs</h3>
+    <h2>Logs</h2>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
     <script>
-      $(document).ready(function(){
-        $(".button_Out").click(function(){
-          $(".out-toggle").toggle();
-        });
-      });
+      $(document).ready(function () {
+        $(".log").hide();
+    
+        $(".button-log").click(function () {
+          var logType = $(this).data("log-type");
+          var panel = $(this).closest(".panel");
 
-      $(document).ready(function(){
-        $(".button_Info").click(function(){
-          $(".info-toggle").toggle();
-        });
-      });
-      
-      $(document).ready(function(){
-        $(".button_Debug").click(function(){
-          $(".debug-toggle").toggle();
-        });
-      });
-      
-      $(document).ready(function(){
-        $(".button_Error").click(function(){
-          $(".error-toggle").toggle();
-        });
-      });
-      
-      $(document).ready(function(){
-        $(".button_Warning").click(function(){
-          $(".warning-toggle").toggle();
-        });
-      });
-      
-      $(document).ready(function(){
-        $(".button_Success").click(function(){
-          $(".success-toggle").toggle();
-        });
-      });
+          panel.find('.log').hide();
 
-      $(document).ready(function(){
-        $("button").click(function(){
-          var el = $(this);
-          el.text() == el.data("text-swap") 
-            ? el.text(el.data("text-original")) 
-            : el.text(el.data("text-swap"));
-        });
-      });
+          panel.find("." + logType + "-log").show();
 
-      $(document).ready(function(){
-      $(".collapsed").click(function(){
-          $(".info-toggle").css("display", "block");
-          $(".debug-toggle").css("display", "block");
-          $(".error-toggle").css("display", "block");
-          $(".warning-toggle").css("display", "block");
-          $(".success-toggle").css("display", "block");
-          $(".out-toggle").css("display", "none");
-          $(".button_Info").text($(".button_Info").data("text-original"));
-          $(".button_Warning").text($(".button_Warning").data("text-original"));
-          $(".button_Success").text($(".button_Success").data("text-original"));
-          $(".button_Debug").text($(".button_Debug").data("text-original"));
-          $(".button_Error").text($(".button_Error").data("text-original"));
-          $(".button_Out").text($(".button_Out").data("text-original"));
-        }); 
+          $(".button-log, .button-show-all").removeClass("active-button");
+
+          $(this).addClass("active-button");
+        });
+    
+        $(".button-show-all").click(function () {
+          var panel = $(this).closest(".panel");
+
+          panel.find('.log').hide();
+
+          panel.find('.all-log').show();
+
+          $(".button-log, .button-show-all").removeClass("active-button");
+    
+          $(this).addClass("active-button");
+        });
+
+        $(".collapsed, .panel-title").click(function () {
+          var panel = $(this).closest(".panel");
+
+          panel.find('.log').hide();
+          panel.find('.all-log').show();
+
+          $(".button-log, .button-show-all").removeClass("active-button");
+
+          $(".button-show-all").addClass("active-button");
+        });
       });
     </script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    
     <div class="panel-group" id="accordion" role="tablist" aria-multiselectable="true">
-      
-      {% for log_grouping in log_groupings %}      
-      <div class="panel panel-default">
-        <div class="panel-heading" role="tab" id="heading{{loop.index}}">
-          <h4 class="panel-title">
-            <a role="button" class="collapsed" data-toggle="collapse" data-parent="#accordion" href="#collapse{{loop.index}}" aria-expanded="true" aria-controls="collapse{{loop.index}}">{{ log_grouping.get_title() }} </a>
-          </h4>
-        </div>
-        <div id="collapse{{loop.index}}" class="panel-collapse collapse" role="tabpanel" aria-labelledby="heading{{loop.index}}">
-          {% if "INFO" in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Info" data-text-swap="Enable Info Filter" data-text-original="Disable Info Filter">Disable Info Filter</button>
-          {% endif %}
-          {% if "ERROR" in log_grouping.get_log_lines()|map(attribute="type") or 'LIBERR' in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Error" data-text-swap="Enable Error Filter" data-text-original="Disable Error Filter">Disable Error Filter</button>
-          {% endif %}
-          {% if "DEBUG" in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Debug" data-text-swap="Enable Debug Filter" data-text-original="Disable Debug Filter">Disable Debug Filter</button>
-          {% endif %}
-          {% if "SUCCESS" in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Success" data-text-swap="Enable Success Filter" data-text-original="Disable Success Filter">Disable Success Filter</button>
-          {% endif %}
-          {% if "WARNING" in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Warning" data-text-swap="Enable Warning Filter" data-text-original="Disable Warning Filter">Disable Warning Filter</button>
-          {% endif %}
-          {% if "OUT" in log_grouping.get_log_lines()|map(attribute="type") %}
-            <button class="button_Out" data-text-swap="Disable Out Filter" data-text-original="Enable Out Filter">Enable Out Filter</button>
-          {% endif %}
-          <div class="panel-body">
-            {% for log_line in log_grouping.get_log_lines() %}
-              {% if 'WARNING' == log_line.type %}
-                <div class="warning-log warning-toggle">{{ log_line.line }}</div>
-              {% elif 'DEBUG' == log_line.type %}
-                <div class="debug-log debug-toggle">{{ log_line.line }}</div>
-              {% elif 'ERROR' == log_line.type %}
-                <div class="error-log error-toggle">{{ log_line.line }}</div>
-              {% elif 'LIBERR' == log_line.type %}
-                <div class="error-log error-toggle">{{ log_line.line }}</div>
-              {% elif 'SUCCESS' == log_line.type %}
-                <div class="success-log success-toggle">{{ log_line.line }}</div>
-              {% elif 'INFO' == log_line.type %}
-                <div class="info-log info-toggle">{{ log_line.line }}</div>
-              {% else %}
-                <div class="out-log out-toggle">{{ log_line.line }}</div>
-              {% endif %} 
+      {% for log_grouping in log_groupings %}
+        <div class="panel panel-default log-group">
+          <div class="panel-heading" role="tab" id="heading{{loop.index}}">
+            <h4 class="panel-title">
+              <a role="button" class="collapsed" data-toggle="collapse" data-parent="#accordion" href="#collapse{{loop.index}}" aria-expanded="true" aria-controls="collapse{{loop.index}}">{{ log_grouping.get_title() }} </a>
+            </h4>
+          </div>
+          <div id="collapse{{loop.index}}" class="panel-collapse collapse" role="tabpanel" aria-labelledby="heading{{loop.index}}">
+            <div class="panel-heading">
+              <button class="button-show-all">Show All Logs</button>
+              <button class="button-log" data-log-type="INFO">Info Logs</button>
+              <button class="button-log" data-log-type="ERROR">Error Logs</button>
+              <button class="button-log" data-log-type="DEBUG">Debug Logs</button>
+              <button class="button-log" data-log-type="SUCCESS">Success Logs</button>
+              <button class="button-log" data-log-type="WARNING">Warning Logs</button>
+              <button class="button-log" data-log-type="OUT">Out Logs</button>
+            </div>
+            <div class="panel-body">
+              {% for log_type in ["INFO", "ERROR", "DEBUG", "SUCCESS", "WARNING", "OUT"] %}
+                <div class="{{ log_type }}-log log">
+                  {% for log_line in log_grouping.get_log_lines() if log_line.type == log_type %}
+                  {{ log_line.line }}<br>
+                {% endfor %}
+              </div>
             {% endfor %}
+            <div class="all-log log">
+              {% for log_line in log_grouping.get_log_lines() %}
+                {% if log_line.type == "INFO" %}
+                  <span style="color: blue;">{{ log_line.line }}</span><br>
+                {% elif log_line.type == "ERROR" %}
+                  <span style="color: red;">{{ log_line.line }}</span><br>
+                {% elif log_line.type == "DEBUG" %}
+                  <span style="color: mediumvioletred;">{{ log_line.line }}</span><br>
+                {% elif log_line.type == "SUCCESS" %}
+                  <span style="color: green;">{{ log_line.line }}</span><br>
+                {% elif log_line.type == "WARNING" %}
+                  <span style="color: darkorange;">{{ log_line.line }}</span><br>
+                {% elif log_line.type == "OUT" %}
+                  <span style="color: black;">{{ log_line.line }}</span><br>
+                {% endif %}
+              {% endfor %}
+            </div>         
           </div>
         </div>
       </div>
-      {% endfor %}              
-    </div>
-  </body>
+    {% endfor %}
+  </div>
+</body>
 </html>
