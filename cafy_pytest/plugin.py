@@ -56,6 +56,9 @@ collection_setup = Config()
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
+CLS = os.environ.get("CLS", None)
+
+
 setattr(pytest,"allure",Cafy)
 
 if CAFY_REPO is None:
@@ -505,7 +508,9 @@ def pytest_configure(config):
                 del os.environ["hybrid_mode"]
 
         #Debug Registration Server code
-
+        if CLS:
+            registration_id = os.environ.get("REG_ID", None)
+            CafyLog.registration_id = registration_id 
         reg_dict = {}
         if cafykit_debug_enable: #If user wants to enable our cafy's debug
             os.environ['cafykit_debug_enable'] = 'True' # Set this environ variable to be used in session_finish()
@@ -983,6 +988,26 @@ class EmailReport(object):
         except Exception:
             pass
 
+    def update_cls_testcase(self, test_case):
+        try:
+            url = "http://cafy-web-sjc4:4142/api/collector/{0}/case-update".format(CafyLog.registration_id)
+            params ={
+                   "case_name" : test_case
+            }
+            self.log.info("Calling cls service (url:%s) for testcase" % test_case)
+            response = _requests_retry(self.log, url, 'PUT', json=params, timeout=300)
+            if response.status_code == 200:
+                self.log.info("cls notified")
+                return True
+            else:
+                self.log.warning("cls notification failed %d" % response.status_code)
+                return False
+        except Exception as e:
+            self.log.warning("Http call to cls service url:%s is not successful" % url)
+            self.log.warning("Error {}".format(e))
+            return False
+        
+
     def initiate_analyzer(self, reg_id, test_case, debug_server):
         headers = {'content-type': 'application/json'}
 
@@ -1010,6 +1035,8 @@ class EmailReport(object):
     def pytest_runtest_setup(self, item):
         test_case = self.get_test_name(item.nodeid)
         self.log.set_testcase(test_case)
+        if CLS and CafyLog.registration_id:
+            self.update_cls_testcase(test_case)
         if item == CafyLog.first_test and self.reg_dict:
             reg_id = self.reg_dict['reg_id']
             debug_server = CafyLog.debug_server
@@ -1085,21 +1112,9 @@ class EmailReport(object):
     def pytest_runtest_makereport(self, item, call):
         report = yield
         result = report.get_result()
-
         if call.when == "teardown":
             stdout_html = self._convert_to_html(result.capstdout)
-            try:
-                all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
-                template_file_name = os.path.join(self.CURRENT_DIR,
-                                        "resources/all_log_template.html")
-                with open(template_file_name) as html_src:
-                    html_template = html_src.read()
-                    template = Template(html_template)
-                stdout_html = template.render(log_groupings = all_log_groupings)
-            except Exception as e:
-                self.log.warning("Error while adding html filters to test_log {}".format(e))
-            finally:
-                allure.attach(stdout_html, 'test_log','text/html')
+            allure.attach(stdout_html, 'test_log','text/html')
 
         if call.when == "call" and Cafy.RunInfo.active_exceptions:
             try:
@@ -1481,7 +1496,6 @@ class EmailReport(object):
                         self.testcase_failtrace_dict[testcase_name] = None
                 else:
                     self.temp_json["stack_exception"]= ""
-    
 
     def check_call_report(self, item, nextitem):
         """
@@ -2099,8 +2113,6 @@ class EmailReport(object):
 
         all_log_groupings = []
         for log_line in input_file_handler:
-            escape_re = re.compile(r'\x1b\[[0-9;]*m')
-            log_line = re.sub(escape_re, "", log_line)
             if separator_line.search(log_line):
                 continue
             elif start_test_line.search(log_line):
@@ -2206,7 +2218,6 @@ class EmailReport(object):
         debug_enabled_status = os.getenv("cafykit_debug_enable", None)
 
         self._generate_allure_report()
-
         if debug_enabled_status and CafyLog.registration_id:
             self.log.title("End run for registration id: %s" % CafyLog.registration_id)
             self._get_analyzer_log()
@@ -2495,3 +2506,4 @@ class LogState(Enum):
     GENERIC = 2
     TESTCASE = 3
     STEP = 3
+
