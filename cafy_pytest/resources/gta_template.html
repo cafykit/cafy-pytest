@@ -34,12 +34,20 @@
             <th>Total Time</th>
         </tr>
     {% for key, values in dictionary_data.items() %}
+        <tr>
+            <td>{{key}}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            </tr>
         {% for step_key, step_values in values.items() %}
             {% if 'sleep_time' in step_key %}
                 {% if step_values is mapping %}
                     {% for time_key, time_values in step_values.items() %}
                         <tr>
-                            <td>{{key}}</td>
+                            <td></td>
                             <td>{{ time_key }}</td>
                             <td>{{ time_values[0] if time_values else 'NA' }}</td>
                             <td>-</td>

@@ -4,6 +4,9 @@ from logger.cafylog import CafyLog
 import os
 import inspect
 from jinja2 import Template
+import functools
+import sys
+import inspect
 
 class TimeCollectorPlugin:
     def __init__(self):
@@ -14,13 +17,14 @@ class TimeCollectorPlugin:
         self.total_execution_time = None
         self.original_set_methods = {}
 
-    def measure_time_for_set_methods(self, method):
+    def measure_time_for_set_or_get_methods(self, method):
         """
         Measure the time taken by set methods.
         This method wraps set methods to measure their execution time.
         param method (function): The set method to be measured.
         Returns: function: The wrapped method.
         """
+        @functools.wraps(method)
         def wrapper(*args, **kwargs):
             start_time = time.perf_counter()
             result = method(*args, **kwargs)
@@ -59,7 +63,7 @@ class TimeCollectorPlugin:
         elapsed_time = '%.2f' % (end_time - start_time)
         self.update_granular_time("sleep_time", elapsed_time)
 
-    def patch_set_methods_for_test_instance(self, item):
+    def patch_set_or_get_methods_for_test_instance(self, item):
         """
         Perform setup and teardown actions for test cases.
         This method performs setup and teardown actions for test cases,including monkey patching sleep and set methods.
@@ -76,7 +80,7 @@ class TimeCollectorPlugin:
                     # Check if the attribute is callable and its name starts with 'set'
                     if callable(method) and method_name.startswith('set') or method_name.startswith('get') :
                         original_method = getattr(class_obj, method_name)
-                        setattr(class_obj, method_name, self.measure_time_for_set_methods(original_method))
+                        setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method))
 
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self, request):
@@ -88,7 +92,7 @@ class TimeCollectorPlugin:
         # Monkey patch time.sleep
         time.sleep = self.measure_sleep_time
         # Monkey patch 'set' methods for all classes in the module
-        self.patch_set_methods_for_test_instance(request.node)
+        self.patch_set_or_get_methods_for_test_instance(request.node)
         yield  # This is where the test case runs
         self.pytest_runtest_teardown(request.node, None)
 
@@ -145,12 +149,39 @@ class TimeCollectorPlugin:
                 if str(command) not in self.granular_time_testcase_dict[current_test][category]:
                     self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
 
+    def update_CafyLog_gta_dict(self, current_test):
+        """
+        Update the CafyLog Granular Time Accounting (GTA) dictionary with timing information for the current test
+        :param current_test:The name of the current test being executed
+        :return : none
+        """
+        if current_test not in self.granular_time_testcase_dict:
+            self.granular_time_testcase_dict[current_test] = dict()
+        if 'set_command' not in self.granular_time_testcase_dict[current_test]:
+            self.granular_time_testcase_dict[current_test]['set_command'] = dict()
+        if 'set_command' in CafyLog.gta_dict:
+            for key, value in CafyLog.gta_dict['set_command'].items():
+                self.granular_time_testcase_dict[current_test]['set_command'][key] = value
+        if 'get_command' not in self.granular_time_testcase_dict[current_test]:
+            self.granular_time_testcase_dict[current_test]['get_command'] = dict()
+        if 'get_command' in CafyLog.gta_dict:
+            for key, value in CafyLog.gta_dict['get_command'].items():
+                self.granular_time_testcase_dict[current_test]['get_command'][key] = value
+
     def pytest_runtest_teardown(self, item, nextitem):
+        """
+        Execute teardown actions after a test has been executed
+        :param item: The test item that was executed
+        :param nextitem: The next test item in the test suite
+        :return: None
+        """
         end_time = time.perf_counter()
         self.total_execution_time = '%.2f' % (end_time - self.start_time)
         current_test = self.test_case_name
         self.granular_time_testcase_dict[current_test]["total_execution_time"] = self.total_execution_time
         self.total_execution_time = None
+        self.update_CafyLog_gta_dict(current_test)
+        CafyLog.gta_dict = {}
 
     def collect_granular_time_accouting_report(self):
         '''
@@ -174,6 +205,7 @@ class TimeCollectorPlugin:
                 time_report[test_case]['get_command'] = {}
             time_report[test_case]['total_execution_time'] =  times["total_execution_time"]
         self.granular_time_testcase_dict = time_report
+
 
     def pytest_terminal_summary(self, terminalreporter):
         '''
