@@ -49,7 +49,7 @@ from utils.collectors.confest import Config
 
 from .cafy import Cafy
 
-from cafypdb import CafyPdb, RemoteConnection, Notification
+from cafypdb import CafyPdb, RemoteConnection, Notification, log
 from cafypdb import CafyPdb_Configs
 
 
@@ -1562,7 +1562,7 @@ class EmailReport(object):
                 if self.debugger_quit == False:
                     self.remote_connection.start_remote_pdb(email_addr_list=self.email_addr_list)
                     if hasattr(self.remote_connection, 'remote_debugger'):
-                        self.log.info("Cafy Debugger: RemotePdb Connection Established")
+                        self.log.info("RemotePdb Connection via CafyPdb Established")
                         #Get the traceback object from the excinfo attribute of the call object
                         exc_tb = call.excinfo.tb
                         remote_debugger = self.remote_connection.remote_debugger

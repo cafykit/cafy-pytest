@@ -2,7 +2,7 @@
     "CafyPdb": {
         "webex_notification_url" : "https://cafy3.cisco.com:3500/api/notifications/sns/cafypdb",
         "API_KEY" : "f912594816b83760756f3cfdcb32f08bdf3f9b6fe46183323ec0aaf0e4afe25b",
-        "cafypdb_timeout" : 7200,
+        "cafypdb_timeout" : 60,
         "doc_link" : "http://cafy-web-sjc1/pages/Cafykit/Develop/cafypdb"
     
     }
