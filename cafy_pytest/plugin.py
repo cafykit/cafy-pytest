@@ -49,7 +49,7 @@ from utils.collectors.confest import Config
 
 from .cafy import Cafy
 
-from cafypdb import CafyPdb, RemoteConnection, Notification, log
+from cafypdb import RemoteConnection
 from cafypdb import CafyPdb_Configs
 
 
@@ -1558,7 +1558,8 @@ class EmailReport(object):
                 cafypdb_config.set_connection_timeout(external_config.get_cafypdb_timeout())
                 cafypdb_config.set_doc_link(external_config.get_cafypdb_doc_link())
 
-                self.remote_connection = RemoteConnection(cafypdb_config)
+                self.remote_connection = RemoteConnection(cafypdb_config, 
+                                                          framework_type='cafy')
                 if self.debugger_quit == False:
                     self.remote_connection.start_remote_pdb(email_addr_list=self.email_addr_list)
                     if hasattr(self.remote_connection, 'remote_debugger'):
