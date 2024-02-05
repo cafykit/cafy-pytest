@@ -676,7 +676,7 @@ def pytest_collection_modifyitems(session, config, items):
         CafyLog.first_test = items[0]
     else:
         CafyLog.first_test = None
-
+        log.info("****** No testcases are selected to execute ******")
     if config.option.enable_live_update:
         log.info("Live logging the status of testcases enabled.")
         os.environ['enable_live_update'] = 'True'
@@ -2169,30 +2169,33 @@ class EmailReport(object):
 
 
     def _generate_allure_report(self):
-        allure_path = "/auto/cafy/cafykit/allure2/latest/bin/allure"
-        if not os.path.exists(allure_path):
-            allure_path = "allure"
-        allure_source_dir = os.path.join(self.archive,"allure")
-        allure_report_dir = os.path.join(self.archive,"reports")
-        cmd = "{allure_path} generate {allure_source_dir} --report-dir {allure_report_dir}".format(
-                    allure_path=allure_path,
-                    allure_source_dir=allure_source_dir,
-                    allure_report_dir=allure_report_dir)
-        #print("Allure Command Line Used: {cmd}".format(cmd=cmd))
-        allure_report = os.path.join(allure_report_dir,"index.html")
-        CafyLog.htmlfile_link = allure_report
-        allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
-        self.allure_html_report = allure_html_report
-        os.system(cmd)
-        #print("Report Generated at: {allure_report}".format(allure_report=allure_report))
-        self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
-        _CafyConfig.summary["allure2"] = {
-                "commandline" : cmd,
-                "html" :  allure_html_report,
-                "source_dir": allure_source_dir,
-                "report_dir": allure_report_dir,
-                "report": allure_report,
-            }
+        try:
+            allure_path = "/auto/cafy/cafykit/allure2/latest/bin/allure"
+            if not os.path.exists(allure_path):
+                allure_path = "allure"
+            allure_source_dir = os.path.join(self.archive,"allure")
+            allure_report_dir = os.path.join(self.archive,"reports")
+            cmd = "{allure_path} generate {allure_source_dir} --report-dir {allure_report_dir}".format(
+                        allure_path=allure_path,
+                        allure_source_dir=allure_source_dir,
+                        allure_report_dir=allure_report_dir)
+            #print("Allure Command Line Used: {cmd}".format(cmd=cmd))
+            allure_report = os.path.join(allure_report_dir,"index.html")
+            CafyLog.htmlfile_link = allure_report
+            allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
+            self.allure_html_report = allure_html_report
+            os.system(cmd)
+            #print("Report Generated at: {allure_report}".format(allure_report=allure_report))
+            self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
+            _CafyConfig.summary["allure2"] = {
+                    "commandline" : cmd,
+                    "html" :  allure_html_report,
+                    "source_dir": allure_source_dir,
+                    "report_dir": allure_report_dir,
+                    "report": allure_report,
+                }
+        except Exception as e:
+            self.log.error("Error in generating allure report: {}".format(e))
 
 
     @pytest.hookimpl(tryfirst=True)
