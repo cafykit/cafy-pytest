@@ -13,11 +13,27 @@ class TimeCollectorPlugin:
         self.original_sleep = time.sleep
         self.granular_time_testcase_dict = dict()
         self.test_case_name = None
-        self.start_time = None
-        self.total_execution_time = None
-        self.original_set_methods = {}
+        self.total_sleep_time = 0
+        self.total_set_command_time = 0
+        self.total_get_command_time = 0
 
-    def measure_time_for_set_or_get_methods(self, method):
+    def update_granular_time_testcase_dict(self, current_test, event, method_name, elapsed_time ):
+        """
+        granular_time_testcase_dict
+        param current_test: current_test
+        param event: command like set , get or time.sleep
+        param method_name: method name
+        param elapsed_time: total time for each command ie, set or get
+        """
+        if current_test not in self.granular_time_testcase_dict:
+            self.granular_time_testcase_dict[current_test] = dict()
+        if event not in self.granular_time_testcase_dict[current_test]:
+            self.granular_time_testcase_dict[current_test][event] = dict()
+        if method_name not in self.granular_time_testcase_dict[current_test][event]:
+            self.granular_time_testcase_dict[current_test][event][method_name] = []
+        self.granular_time_testcase_dict[current_test][event][method_name].append(float(elapsed_time))
+
+    def measure_time_for_set_or_get_methods(self, method, cls_name):
         """
         Measure the time taken by set methods.
         This method wraps set methods to measure their execution time.
@@ -36,19 +52,10 @@ class TimeCollectorPlugin:
                 self.granular_time_testcase_dict[current_test] = dict()
             method_name = method.__name__
             if method_name.startswith('set'):
-                if 'set_command' not in self.granular_time_testcase_dict[current_test]:
-                    self.granular_time_testcase_dict[current_test]['set_command'] = dict()
-                if method_name not in self.granular_time_testcase_dict[current_test]['set_command']:
-                    self.granular_time_testcase_dict[current_test]['set_command'][method_name] = []
-                self.granular_time_testcase_dict[current_test]['set_command'][method_name].append(float(elapsed_time))
+                self.update_granular_time_testcase_dict(current_test,'set_command', ".".join([cls_name, method.__name__]), elapsed_time)
             elif method_name.startswith('get'):
-                if 'get_command' not in self.granular_time_testcase_dict[current_test]:
-                    self.granular_time_testcase_dict[current_test]['get_command'] = dict()
-                if method_name not in self.granular_time_testcase_dict[current_test]['get_command']:
-                    self.granular_time_testcase_dict[current_test]['get_command'][method_name] = []
-                self.granular_time_testcase_dict[current_test]['get_command'][method_name].append(float(elapsed_time))
+                self.update_granular_time_testcase_dict(current_test, 'get_command', ".".join([cls_name, method.__name__]), elapsed_time)
             return result
-
         return wrapper
 
     def measure_sleep_time(self, duration):
@@ -57,11 +64,17 @@ class TimeCollectorPlugin:
         param duration: duration or sleep time declared in TC fucntion's
         return : Update the graunular time at test case level
         '''
+        caller_frame = inspect.currentframe().f_back
+        caller_method_name = caller_frame.f_code.co_name
+        caller_class = caller_frame.f_locals.get('self').__class__
+        # Get the method of the caller's class
+        caller_method = getattr(caller_class, caller_method_name)
+        current_test = self.test_case_name
         start_time = time.perf_counter()
         self.original_sleep(duration)
         end_time = time.perf_counter()
         elapsed_time = '%.2f' % (end_time - start_time)
-        self.update_granular_time("sleep_time", elapsed_time)
+        self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time)
 
     def patch_set_or_get_methods_for_test_instance(self, item):
         """
@@ -80,7 +93,7 @@ class TimeCollectorPlugin:
                     # Check if the attribute is callable and its name starts with 'set'
                     if callable(method) and method_name.startswith('set') or method_name.startswith('get') :
                         original_method = getattr(class_obj, method_name)
-                        setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method))
+                        setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
 
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self, request):
@@ -88,7 +101,6 @@ class TimeCollectorPlugin:
         Method setup_and_teardown : it will Monkey patch the sleep time, set level command and get level command etc
         param request: take request
         '''
-        self.start_time = time.perf_counter()
         # Monkey patch time.sleep
         time.sleep = self.measure_sleep_time
         # Monkey patch 'set' methods for all classes in the module
@@ -116,39 +128,6 @@ class TimeCollectorPlugin:
             self.test_case_name = f"{item.name}"
         return None
 
-    def update_granular_time(self, category, elapsed_time, command = None):
-        '''
-        Method update_granular_time : it will update the time at test case level
-        param category : category like bash time, sleep time etc.
-        param  elapsed_time : time spend during event like sleep, bash etc
-        return : Update the graunular time at test case level
-        '''
-        current_test = self.test_case_name
-        if current_test not in self.granular_time_testcase_dict:
-            self.granular_time_testcase_dict[current_test] = dict()
-
-        if category not in self.granular_time_testcase_dict[current_test]:
-            self.granular_time_testcase_dict[current_test][category] = dict()
-            if category == "sleep_time":
-                self.granular_time_testcase_dict[current_test][category]["sleep_time"] = list()
-                self.granular_time_testcase_dict[current_test][category]["sleep_time"].append(float(elapsed_time))
-            elif category == "set_command" and command:
-                self.granular_time_testcase_dict[current_test][category] = dict()
-                self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
-            elif category == "get_command" and command:
-                self.granular_time_testcase_dict[current_test][category] = dict()
-                self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
-
-        else:
-            if category == "sleep_time":
-                    self.granular_time_testcase_dict[current_test][category]["sleep_time"].append(float(elapsed_time))
-            elif category == "set_command" and command:
-                if str(command) not in self.granular_time_testcase_dict[current_test][category]:
-                    self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
-            elif category == "get_command" and command:
-                if str(command) not in self.granular_time_testcase_dict[current_test][category]:
-                    self.granular_time_testcase_dict[current_test][category][str(command)] = float(elapsed_time)
-
     def update_CafyLog_gta_dict(self, current_test):
         """
         Update the CafyLog Granular Time Accounting (GTA) dictionary with timing information for the current test
@@ -175,13 +154,32 @@ class TimeCollectorPlugin:
         :param nextitem: The next test item in the test suite
         :return: None
         """
-        end_time = time.perf_counter()
-        self.total_execution_time = '%.2f' % (end_time - self.start_time)
         current_test = self.test_case_name
-        self.granular_time_testcase_dict[current_test]["total_execution_time"] = self.total_execution_time
-        self.total_execution_time = None
         self.update_CafyLog_gta_dict(current_test)
         CafyLog.gta_dict = {}
+
+    def get_time_data(self,data, event):
+        '''
+        get time data
+        this method will take the timings list for each sleep_time , set_command or get_command 
+        and it will club into as sum and occurence
+        param data : timings data
+        '''
+        tmp_dict = {}
+        for command, timings_list in data.items():
+            if isinstance(timings_list, list):
+                total_sum = sum(timings_list)
+                length = len(timings_list)
+                if event == 'sleep_time':
+                    self.total_sleep_time = self.total_sleep_time + total_sum
+                elif event == 'set_command':
+                    self.total_set_command_time = self.total_set_command_time + total_sum
+                elif event == 'get_command':
+                    self.total_get_command_time = self.total_get_command_time + total_sum
+                tmp_dict[command] = ["{:.2f}".format(total_sum), length]
+            else:
+                tmp_dict[command] = timings_list
+        return tmp_dict
 
     def collect_granular_time_accouting_report(self):
         '''
@@ -189,37 +187,43 @@ class TimeCollectorPlugin:
         return : create report for time accounting in cafy work dir as granular_time_report.json
         '''
         time_report = dict()
-        for test_case, times in self.granular_time_testcase_dict.items():
+        for test_case, events in self.granular_time_testcase_dict.items():
             time_report[test_case] = dict()
-            if 'sleep_time' in times:
-                time_report[test_case]['sleep_time'] = times["sleep_time"]
+            if 'sleep_time' in events:
+                time_report[test_case]['sleep_time'] = self.get_time_data(events["sleep_time"],'sleep_time')
             else:
-                time_report[test_case]['sleep_time'] =  []
-            if 'set_command' in times:
-                time_report[test_case]['set_command'] = times['set_command']
+                time_report[test_case]['sleep_time'] =  {}
+            if 'set_command' in events:
+                time_report[test_case]['set_command'] = self.get_time_data(events["set_command"],'set_command')
             else:
                 time_report[test_case]['set_command'] = {}
-            if 'get_command' in times:
-                time_report[test_case]['get_command'] = times['get_command']
+            if 'get_command' in events:
+                time_report[test_case]['get_command'] = self.get_time_data(events["get_command"],'get_command')
             else:
                 time_report[test_case]['get_command'] = {}
-            time_report[test_case]['total_execution_time'] =  times["total_execution_time"]
-        self.granular_time_testcase_dict = time_report
 
+            time_report[test_case]['total_sleep_time'] = "{:.2f}".format(self.total_sleep_time)
+            time_report[test_case]['total_set_command_time'] = "{:.2f}".format(self.total_set_command_time)
+            time_report[test_case]['total_get_command_time'] = "{:.2f}".format(self.total_get_command_time)
+            time_report[test_case]['total_time'] = "{:.2f}".format(self.total_sleep_time+self.total_set_command_time+self.total_get_command_time)
+            self.total_sleep_time = 0
+            self.total_set_command_time = 0
+            self.total_get_command_time = 0
+        return time_report
 
     def pytest_terminal_summary(self, terminalreporter):
         '''
         Method pytest_terminal_summary : terminal reporting 
         return : None
         '''
-        self.collect_granular_time_accouting_report()
+        time_report = self.collect_granular_time_accouting_report()
         # Create a Jinja2 environment and load the HTML template
         CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
         template_file = os.path.join(CURRENT_DIR,"resources/gta_template.html")
         with open(template_file) as html_src:
             html_template = html_src.read()
         template = Template(html_template)
-        html_content = template.render(dictionary_data=self.granular_time_testcase_dict)
+        html_content = template.render(dictionary_data=time_report)
         # Define the path to the output HTML file
         path=CafyLog.work_dir
         html_file_path = os.path.join(path, 'granular_time_report.html')
