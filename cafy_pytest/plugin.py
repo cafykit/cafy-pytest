@@ -1326,6 +1326,7 @@ class EmailReport(object):
                 if report.longrepr:
                     status = 'failed'
                     self.temp_json["stack_exception"] = str(report.longrepr)
+                    self.testcase_dict[testcase_name].status = 'failed'
                 else:
                     status = self.testcase_dict[testcase_name].status
             try:
@@ -2355,18 +2356,21 @@ class CafyReportData(object):
             self.git_commit_id = None
         self.archive = CafyLog.work_dir
         # summary result
-        passed_list = self.terminalreporter.getreports('passed')
-        failed_list = self.terminalreporter.getreports('failed')
-        skipped_list = self.terminalreporter.getreports('skipped')
-        xpassed_list = self.terminalreporter.getreports('xpassed')
-        xfailed_list = self.terminalreporter.getreports('xfailed')
-
-        # total_tc_list = self.terminalreporter.getreports('')
-        self.passed = len(passed_list)
-        self.failed = len(failed_list)
-        self.skipped = len(skipped_list)
-        self.xpassed = len(xpassed_list)
-        self.xfailed = len(xfailed_list)
+        status_lists = {
+            'passed': [],
+            'failed': [],
+            'skipped': [],
+            'xpassed': [],
+            'xfailed': []
+        }
+        for v in self.testcase_dict.values():
+            if v.status in status_lists:
+                status_lists[v.status].append(v.status)
+        self.passed = len(status_lists['passed'])
+        self.failed = len(status_lists['failed'])
+        self.skipped = len(status_lists['skipped'])
+        self.xpassed = len(status_lists['xpassed'])
+        self.xfailed = len(status_lists['xfailed'])
         self.total = self.passed + self.failed + self.skipped + self.xpassed + self.xfailed
         if self.terminalreporter.config.option.mail_if_fail is True and self.total == self.passed and self.total != 0:
             self.terminalreporter.config._email.no_email = True
