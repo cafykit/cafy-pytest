@@ -7,6 +7,9 @@
       body {
         font-family: 'Courier New', Courier, monospace;
       }
+      span {
+        white-space: pre;
+      }
       .active-button {
         background-color: yellow;
         color: #333;
@@ -161,7 +164,7 @@
               {% for log_type in ["INFO", "ERROR", "DEBUG", "SUCCESS", "WARNING", "OUT"] %}
                 <div class="{{ log_type }}-log log">
                   {% for log_line in log_grouping.get_log_lines() if log_line.type == log_type %}
-                  {{ log_line.line }}<br>
+                  <span>{{ log_line.line }}</span><br>
                 {% endfor %}
               </div>
             {% endfor %}
