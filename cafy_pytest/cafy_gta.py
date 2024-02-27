@@ -95,19 +95,6 @@ class TimeCollectorPlugin:
                         original_method = getattr(class_obj, method_name)
                         setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
 
-    @pytest.fixture(autouse=True)
-    def setup_and_teardown(self, request):
-        '''
-        Method setup_and_teardown : it will Monkey patch the sleep time, set level command and get level command etc
-        param request: take request
-        '''
-        # Monkey patch time.sleep
-        time.sleep = self.measure_sleep_time
-        # Monkey patch 'set' methods for all classes in the module
-        self.patch_set_or_get_methods_for_test_instance(request.node)
-        yield  # This is where the test case runs
-        self.pytest_runtest_teardown(request.node, None)
-
     def pytest_runtest_protocol(self, item, nextitem):
         '''
         Method pytest_runtest_protocol : it will Monkey patch sleep , subprocess run etc
@@ -116,6 +103,10 @@ class TimeCollectorPlugin:
         param  nextitem : test case nextitem
         return : None
         '''
+        # Monkey patch time.sleep
+        time.sleep = self.measure_sleep_time
+        # Monkey patch 'set' methods for all classes in the module
+        self.patch_set_or_get_methods_for_test_instance(item)
         # get class name of the test case method
         base_class_name = ""
         if item.cls:
@@ -138,12 +129,12 @@ class TimeCollectorPlugin:
             self.granular_time_testcase_dict[current_test] = dict()
         if 'set_command' not in self.granular_time_testcase_dict[current_test]:
             self.granular_time_testcase_dict[current_test]['set_command'] = dict()
-        if 'set_command' in CafyLog.gta_dict:
+        if hasattr(CafyLog,"gta_dict") and 'set_command' in CafyLog.gta_dict:
             for key, value in CafyLog.gta_dict['set_command'].items():
                 self.granular_time_testcase_dict[current_test]['set_command'][key] = value
         if 'get_command' not in self.granular_time_testcase_dict[current_test]:
             self.granular_time_testcase_dict[current_test]['get_command'] = dict()
-        if 'get_command' in CafyLog.gta_dict:
+        if hasattr(CafyLog,"gta_dict") and 'get_command' in CafyLog.gta_dict:
             for key, value in CafyLog.gta_dict['get_command'].items():
                 self.granular_time_testcase_dict[current_test]['get_command'][key] = value
 
