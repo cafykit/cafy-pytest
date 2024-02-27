@@ -83,6 +83,9 @@ class TimeCollectorPlugin:
         param request: The test request.
         Yields: None
         """
+        # To avoid maximum recursion depth error
+        if getattr(item.cls, '_decorated', None):
+            return
         test_case_class = item.cls
         if test_case_class:
             # Get the module of the test case class
@@ -94,6 +97,7 @@ class TimeCollectorPlugin:
                     if callable(method) and method_name.startswith('set') or method_name.startswith('get') :
                         original_method = getattr(class_obj, method_name)
                         setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
+        setattr(item.cls, '_decorated', True)
 
     def pytest_runtest_protocol(self, item, nextitem):
         '''
