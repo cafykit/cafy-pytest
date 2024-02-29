@@ -7,6 +7,9 @@ from jinja2 import Template
 import functools
 import sys
 import inspect
+import requests
+import json
+from .cafygta_config import CafyGTA_Configs
 
 class TimeCollectorPlugin:
     def __init__(self):
@@ -206,6 +209,25 @@ class TimeCollectorPlugin:
             self.total_get_command_time = 0
         return time_report
 
+    def add_gta_data_into_db(self, time_report,run_id='local_run'):
+        '''
+        add_gta_data_into_db
+        :param time_report: gta report json data
+        '''
+        try:
+            URL = CafyGTA_Configs.get_gta_url()
+            API_KEY = CafyGTA_Configs.get_api_key()
+            data = dict()
+            data['run_id'] = run_id
+            data['gta'] = time_report
+            data_json = json.dumps(data)
+            headers = {'Content-Type': 'application/json',
+                       'Authorization': 'Bearer {}'.format(API_KEY)}
+            response = requests.post(URL, data=data_json, headers=headers)
+        except Exception as e:
+            print(e)
+
+
     def pytest_terminal_summary(self, terminalreporter):
         '''
         Method pytest_terminal_summary : terminal reporting 
@@ -223,5 +245,7 @@ class TimeCollectorPlugin:
         path=CafyLog.work_dir
         html_file_path = os.path.join(path, 'granular_time_report.html')
         # Write the HTML content to the output file
+        run_id = os.environ.get("CAFY_RUN_ID", 'local_run')
+        self.add_gta_data_into_db(time_report,run_id)
         with open(html_file_path, 'w') as html_file:
             html_file.write(html_content)
