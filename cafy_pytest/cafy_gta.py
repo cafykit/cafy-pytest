@@ -95,8 +95,12 @@ class TimeCollectorPlugin:
                 for method_name, method in inspect.getmembers(class_obj, inspect.isfunction):
                     # Check if the attribute is callable and its name starts with 'set'
                     if callable(method) and method_name.startswith('set') or method_name.startswith('get') :
-                        original_method = getattr(class_obj, method_name)
-                        setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
+                        #skipping appyling timer on setup method of testclass
+                        if method_name == 'setup_method':
+                            continue
+                        else:
+                            original_method = getattr(class_obj, method_name)
+                            setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
         setattr(item.cls, '_decorated', True)
 
     def pytest_runtest_protocol(self, item, nextitem):
