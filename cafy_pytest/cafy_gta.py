@@ -68,13 +68,15 @@ class TimeCollectorPlugin:
         caller_method_name = caller_frame.f_code.co_name
         caller_class = caller_frame.f_locals.get('self').__class__
         # Get the method of the caller's class
-        caller_method = getattr(caller_class, caller_method_name)
-        current_test = self.test_case_name
-        start_time = time.perf_counter()
-        self.original_sleep(duration)
-        end_time = time.perf_counter()
-        elapsed_time = '%.2f' % (end_time - start_time)
-        self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time)
+        if caller_class is not None:
+            caller_method = getattr(caller_class, caller_method_name, None)
+            if caller_method is not None:
+                current_test = self.test_case_name
+                start_time = time.perf_counter()
+                self.original_sleep(duration)
+                end_time = time.perf_counter()
+                elapsed_time = '%.2f' % (end_time - start_time)
+                self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time)
 
     def patch_set_or_get_methods_for_test_instance(self, item):
         """
