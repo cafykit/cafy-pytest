@@ -103,7 +103,8 @@ class TimeCollectorPlugin:
                         else:
                             original_method = getattr(class_obj, method_name)
                             setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
-        setattr(item.cls, '_decorated', True)
+        if item.cls is not None:
+            setattr(item.cls, '_decorated', True)
 
     def pytest_runtest_protocol(self, item, nextitem):
         '''
