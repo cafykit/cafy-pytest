@@ -24,6 +24,7 @@ setup(
         'tabulate',
         'urllib3',
         'validators',
+        'cafypdb @ git+https://github.com/cafykit/cafy-pdb#egg=cafypdb'
     ],
     # the following makes a plugin available to pytest
     entry_points={
