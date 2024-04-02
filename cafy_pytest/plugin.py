@@ -220,6 +220,10 @@ def pytest_addoption(parser):
     group.addoption('--cafypdb', dest='cafypdb', action='store_true',
                     help='Variable to enable cafy PDB, default is False')
 
+    group = parser.getgroup('Cafy gta ')
+    group.addoption('--cafygta', dest='cafygta', action='store_true',
+                    help='Variable to enable cafy gta, default is False')
+
 
 def is_valid_param(arg, file_type=None):
     if not arg:
@@ -354,6 +358,7 @@ def pytest_configure(config):
     for item in config.option.collection:
         collection_list.extend(item.split(","))
     cafypdb = config.option.cafypdb
+    cafygta = config.option.cafygta
     # register additional markers
     config.addinivalue_line("markers", "Future(name): mark test that are planned for future")
     config.addinivalue_line("markers", "Feature(name): mark feature of a testcase")
@@ -559,7 +564,8 @@ def pytest_configure(config):
                                     collection_list,
                                     cafypdb)
         config.pluginmanager.register(config._email)
-        config.pluginmanager.register(TimeCollectorPlugin())
+        if cafygta:
+            config.pluginmanager.register(TimeCollectorPlugin())
 
         #Write all.log path to terminal
         reporter = TerminalReporter(config, sys.stdout)
@@ -587,8 +593,13 @@ def pytest_unconfigure(config):
         tmp_str_text = str(tmp_text)
         with open(os.path.join(CafyLog.work_dir, "env.txt"), "w") as f:
             f.write(tmp_str_text)
-        time_collector_plugin = config.pluginmanager.get_plugin(TimeCollectorPlugin)
-        config.pluginmanager.unregister(time_collector_plugin)
+        time_collector_plugin = None
+        try:
+            time_collector_plugin = config.pluginmanager.get_plugin(TimeCollectorPlugin)
+        except Exception as err:
+            time_collector_plugin = None
+        if time_collector_plugin is not None:
+            config.pluginmanager.unregister(time_collector_plugin)
     except:
         pass
 

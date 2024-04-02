@@ -244,19 +244,6 @@ class TimeCollectorPlugin:
         return : None
         '''
         time_report = self.collect_granular_time_accouting_report()
-        # Create a Jinja2 environment and load the HTML template
-        CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
-        template_file = os.path.join(CURRENT_DIR,"resources/gta_template.html")
-        with open(template_file) as html_src:
-            html_template = html_src.read()
-        template = Template(html_template)
-        html_content = template.render(dictionary_data=time_report)
-        # Define the path to the output HTML file
-        path=CafyLog.work_dir
-        html_file_path = os.path.join(path, 'granular_time_report.html')
         #Update gta data into mongo db
         run_id = os.environ.get("CAFY_RUN_ID", 'local_run')
         self.add_gta_data_into_db(time_report,run_id)
-        # Write the HTML content to the output file
-        with open(html_file_path, 'w') as html_file:
-            html_file.write(html_content)
