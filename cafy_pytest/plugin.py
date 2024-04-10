@@ -60,7 +60,6 @@ CLS = os.environ.get("CLS", None)
 LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
 
-
 setattr(pytest,"allure",Cafy)
 
 if CAFY_REPO is None:
@@ -437,7 +436,6 @@ def pytest_configure(config):
                     else:
                         CafyLog.logstash_port = logstash_port
 
-
                 if debug_server is not None:
                     CafyLog.debug_server = debug_server
                     log = CafyLog("cafy")
@@ -695,7 +693,7 @@ def pytest_collection_modifyitems(session, config, items):
         CafyLog.first_test = items[0]
     else:
         CafyLog.first_test = None
-
+        log.info("****** No testcases are selected to execute ******")
     if config.option.enable_live_update:
         log.info("Live logging the status of testcases enabled.")
         os.environ['enable_live_update'] = 'True'
@@ -1002,6 +1000,7 @@ class EmailReport(object):
         except Exception:
             pass
 
+
     def update_cls_testcase(self, test_case):
         try:
             url = "http://cafy-web-sjc4:4142/api/collector/{0}/case-update".format(CafyLog.registration_id)
@@ -1020,7 +1019,6 @@ class EmailReport(object):
             self.log.warning("Http call to cls service url:%s is not successful" % url)
             self.log.warning("Error {}".format(e))
             return False
-        
 
     def initiate_analyzer(self, reg_id, test_case, debug_server):
         headers = {'content-type': 'application/json'}
@@ -1126,9 +1124,21 @@ class EmailReport(object):
     def pytest_runtest_makereport(self, item, call):
         report = yield
         result = report.get_result()
+
         if call.when == "teardown":
             stdout_html = self._convert_to_html(result.capstdout)
-            allure.attach(stdout_html, 'test_log','text/html')
+            try:
+                all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
+                template_file_name = os.path.join(self.CURRENT_DIR,
+                                        "resources/all_log_template.html")
+                with open(template_file_name) as html_src:
+                    html_template = html_src.read()
+                    template = Template(html_template)
+                stdout_html = template.render(log_groupings = all_log_groupings)
+            except Exception as e:
+                self.log.warning("Error while adding html filters to test_log {}".format(e))
+            finally:
+                allure.attach(stdout_html, 'test_log','text/html')
 
         if call.when == "call" and Cafy.RunInfo.active_exceptions:
             try:
@@ -1355,6 +1365,7 @@ class EmailReport(object):
                 if report.longrepr:
                     status = 'failed'
                     self.temp_json["stack_exception"] = str(report.longrepr)
+                    self.testcase_dict[testcase_name].status = 'failed'
                 else:
                     status = self.testcase_dict[testcase_name].status
             try:
@@ -1510,6 +1521,7 @@ class EmailReport(object):
                         self.testcase_failtrace_dict[testcase_name] = None
                 else:
                     self.temp_json["stack_exception"]= ""
+    
 
     def check_call_report(self, item, nextitem):
         """
@@ -2127,6 +2139,8 @@ class EmailReport(object):
 
         all_log_groupings = []
         for log_line in input_file_handler:
+            escape_re = re.compile(r'\x1b\[[0-9;]*m')
+            log_line = re.sub(escape_re, "", log_line)
             if separator_line.search(log_line):
                 continue
             elif start_test_line.search(log_line):
@@ -2195,30 +2209,33 @@ class EmailReport(object):
 
 
     def _generate_allure_report(self):
-        allure_path = "/auto/cafy/cafykit/allure2/latest/bin/allure"
-        if not os.path.exists(allure_path):
-            allure_path = "allure"
-        allure_source_dir = os.path.join(self.archive,"allure")
-        allure_report_dir = os.path.join(self.archive,"reports")
-        cmd = "{allure_path} generate {allure_source_dir} --report-dir {allure_report_dir}".format(
-                    allure_path=allure_path,
-                    allure_source_dir=allure_source_dir,
-                    allure_report_dir=allure_report_dir)
-        #print("Allure Command Line Used: {cmd}".format(cmd=cmd))
-        allure_report = os.path.join(allure_report_dir,"index.html")
-        CafyLog.htmlfile_link = allure_report
-        allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
-        self.allure_html_report = allure_html_report
-        os.system(cmd)
-        #print("Report Generated at: {allure_report}".format(allure_report=allure_report))
-        self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
-        _CafyConfig.summary["allure2"] = {
-                "commandline" : cmd,
-                "html" :  allure_html_report,
-                "source_dir": allure_source_dir,
-                "report_dir": allure_report_dir,
-                "report": allure_report,
-            }
+        try:
+            allure_path = "/auto/cafy/cafykit/allure2/latest/bin/allure"
+            if not os.path.exists(allure_path):
+                allure_path = "allure"
+            allure_source_dir = os.path.join(self.archive,"allure")
+            allure_report_dir = os.path.join(self.archive,"reports")
+            cmd = "{allure_path} generate {allure_source_dir} --report-dir {allure_report_dir}".format(
+                        allure_path=allure_path,
+                        allure_source_dir=allure_source_dir,
+                        allure_report_dir=allure_report_dir)
+            #print("Allure Command Line Used: {cmd}".format(cmd=cmd))
+            allure_report = os.path.join(allure_report_dir,"index.html")
+            CafyLog.htmlfile_link = allure_report
+            allure_html_report = os.path.join(_CafyConfig.allure_server,allure_report.strip("/"))
+            self.allure_html_report = allure_html_report
+            os.system(cmd)
+            #print("Report Generated at: {allure_report}".format(allure_report=allure_report))
+            self.log.info("Report: {allure_html_report}".format(allure_html_report=allure_html_report))
+            _CafyConfig.summary["allure2"] = {
+                    "commandline" : cmd,
+                    "html" :  allure_html_report,
+                    "source_dir": allure_source_dir,
+                    "report_dir": allure_report_dir,
+                    "report": allure_report,
+                }
+        except Exception as e:
+            self.log.error("Error in generating allure report: {}".format(e))
 
 
     @pytest.hookimpl(tryfirst=True)
@@ -2232,6 +2249,7 @@ class EmailReport(object):
         debug_enabled_status = os.getenv("cafykit_debug_enable", None)
 
         self._generate_allure_report()
+
         if debug_enabled_status and CafyLog.registration_id:
             self.log.title("End run for registration id: %s" % CafyLog.registration_id)
             self._get_analyzer_log()
@@ -2377,18 +2395,21 @@ class CafyReportData(object):
             self.git_commit_id = None
         self.archive = CafyLog.work_dir
         # summary result
-        passed_list = self.terminalreporter.getreports('passed')
-        failed_list = self.terminalreporter.getreports('failed')
-        skipped_list = self.terminalreporter.getreports('skipped')
-        xpassed_list = self.terminalreporter.getreports('xpassed')
-        xfailed_list = self.terminalreporter.getreports('xfailed')
-
-        # total_tc_list = self.terminalreporter.getreports('')
-        self.passed = len(passed_list)
-        self.failed = len(failed_list)
-        self.skipped = len(skipped_list)
-        self.xpassed = len(xpassed_list)
-        self.xfailed = len(xfailed_list)
+        status_lists = {
+            'passed': [],
+            'failed': [],
+            'skipped': [],
+            'xpassed': [],
+            'xfailed': []
+        }
+        for v in self.testcase_dict.values():
+            if v.status in status_lists:
+                status_lists[v.status].append(v.status)
+        self.passed = len(status_lists['passed'])
+        self.failed = len(status_lists['failed'])
+        self.skipped = len(status_lists['skipped'])
+        self.xpassed = len(status_lists['xpassed'])
+        self.xfailed = len(status_lists['xfailed'])
         self.total = self.passed + self.failed + self.skipped + self.xpassed + self.xfailed
         if self.terminalreporter.config.option.mail_if_fail is True and self.total == self.passed and self.total != 0:
             self.terminalreporter.config._email.no_email = True
@@ -2520,4 +2541,3 @@ class LogState(Enum):
     GENERIC = 2
     TESTCASE = 3
     STEP = 3
-
