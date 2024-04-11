@@ -56,6 +56,11 @@ collection_setup = Config()
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
+CLS = os.environ.get("CLS", None)
+cls_host = os.environ.get("CLS_HOST", None)
+LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
+LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
+
 setattr(pytest,"allure",Cafy)
 
 if CAFY_REPO is None:
@@ -419,10 +424,16 @@ def pytest_configure(config):
                 logstash_server_name = topo_obj.get_logstash_server_name()
 
                 if logstash_server_name is not None:
-                    CafyLog.logstash_server = logstash_server_name
+                    if LOGSTASH_SERVER is not None:
+                        CafyLog.logstash_server = LOGSTASH_SERVER
+                    else:
+                        CafyLog.logstash_server = logstash_server_name
 
                 if logstash_port is not None:
-                    CafyLog.logstash_port = logstash_port
+                    if LOGSTASH_PORT is not None:
+                        CafyLog.logstash_port = int(LOGSTASH_PORT)
+                    else:
+                        CafyLog.logstash_port = logstash_port
 
                 if debug_server is not None:
                     CafyLog.debug_server = debug_server
@@ -505,7 +516,9 @@ def pytest_configure(config):
                 del os.environ["hybrid_mode"]
 
         #Debug Registration Server code
-
+        if CLS and int(CLS):
+            registration_id = os.environ.get("REG_ID", None)
+            CafyLog.registration_id = registration_id 
         reg_dict = {}
         if cafykit_debug_enable: #If user wants to enable our cafy's debug
             os.environ['cafykit_debug_enable'] = 'True' # Set this environ variable to be used in session_finish()
@@ -520,6 +533,9 @@ def pytest_configure(config):
 
             if CafyLog.debug_server is None: #Ask if we have to consider a default name
                 print("debug_server name not provided in topo file")
+            elif CLS and int(CLS) and CafyLog.registration_id:
+                print("CLS is enabled and registration_id is already created")
+                log.info("Registration ID: %s" %CafyLog.registration_id)
             else:
                 try:
                     url = 'http://{0}:5001/create/'.format(CafyLog.debug_server)
@@ -983,6 +999,31 @@ class EmailReport(object):
         except Exception:
             pass
 
+
+    def update_cls_testcase(self, test_case):
+        '''
+        update cls with test case change update
+        :param testcase:
+        :return:
+        '''
+        try:
+            url = "{0}/api/collector/{1}/case-update".format(cls_host, CafyLog.registration_id)
+            params ={
+                   "case_name" : test_case
+            }
+            self.log.info("Calling cls service (url:%s) for testcase" % test_case)
+            response = _requests_retry(self.log, url, 'PUT', json=params, timeout=300)
+            if response.status_code == 200:
+                self.log.info("cls notified")
+                return True
+            else:
+                self.log.warning("cls notification failed %d" % response.status_code)
+                return False
+        except Exception as e:
+            self.log.warning("Http call to cls service url:%s is not successful" % url)
+            self.log.warning("Error {}".format(e))
+            return False
+
     def initiate_analyzer(self, reg_id, test_case, debug_server):
         headers = {'content-type': 'application/json'}
 
@@ -1010,6 +1051,8 @@ class EmailReport(object):
     def pytest_runtest_setup(self, item):
         test_case = self.get_test_name(item.nodeid)
         self.log.set_testcase(test_case)
+        if CLS and int(CLS) and CafyLog.registration_id:
+            self.update_cls_testcase(test_case)
         if item == CafyLog.first_test and self.reg_dict:
             reg_id = self.reg_dict['reg_id']
             debug_server = CafyLog.debug_server
