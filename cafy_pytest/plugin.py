@@ -57,6 +57,7 @@ collection_setup = Config()
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
 CLS = os.environ.get("CLS", None)
+cls_host = os.environ.get("CLS_HOST", None)
 LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
 
@@ -424,14 +425,12 @@ def pytest_configure(config):
 
                 if logstash_server_name is not None:
                     if LOGSTASH_SERVER is not None:
-                        print(LOGSTASH_SERVER)
                         CafyLog.logstash_server = LOGSTASH_SERVER
                     else:
                         CafyLog.logstash_server = logstash_server_name
 
                 if logstash_port is not None:
                     if LOGSTASH_PORT is not None:
-                        print(LOGSTASH_PORT)
                         CafyLog.logstash_port = int(LOGSTASH_PORT)
                     else:
                         CafyLog.logstash_port = logstash_port
@@ -1002,8 +1001,13 @@ class EmailReport(object):
 
 
     def update_cls_testcase(self, test_case):
+        '''
+        update cls with test case change update
+        :param testcase:
+        :return:
+        '''
         try:
-            url = "http://cafy-web-sjc4:4142/api/collector/{0}/case-update".format(CafyLog.registration_id)
+            url = "{0}/api/collector/{1}/case-update".format(cls_host, CafyLog.registration_id)
             params ={
                    "case_name" : test_case
             }
