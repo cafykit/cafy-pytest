@@ -48,6 +48,7 @@ from utils.cafyexception import CafyException
 from utils.collectors.confest import Config
 
 from .cafy import Cafy
+from .cafy_gta import TimeCollectorPlugin
 from .cafy_pdb import CafyPdb
 from .cafypdb_config import CafyPdb_Configs
 
@@ -574,6 +575,7 @@ def pytest_configure(config):
                                     collection_list,
                                     cafypdb)
         config.pluginmanager.register(config._email)
+        config.pluginmanager.register(TimeCollectorPlugin())
 
         #Write all.log path to terminal
         reporter = TerminalReporter(config, sys.stdout)
@@ -601,6 +603,8 @@ def pytest_unconfigure(config):
         tmp_str_text = str(tmp_text)
         with open(os.path.join(CafyLog.work_dir, "env.txt"), "w") as f:
             f.write(tmp_str_text)
+        time_collector_plugin = config.pluginmanager.get_plugin(TimeCollectorPlugin)
+        config.pluginmanager.unregister(time_collector_plugin)
     except:
         pass
 
