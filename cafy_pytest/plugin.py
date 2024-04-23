@@ -424,16 +424,15 @@ def pytest_configure(config):
                 logstash_server_name = topo_obj.get_logstash_server_name()
 
                 if logstash_server_name is not None:
-                    if LOGSTASH_SERVER is not None:
-                        CafyLog.logstash_server = LOGSTASH_SERVER
-                    else:
-                        CafyLog.logstash_server = logstash_server_name
-
+                    CafyLog.logstash_server = logstash_server_name
+                if LOGSTASH_SERVER is not None:
+                    CafyLog.logstash_server = LOGSTASH_SERVER
+               
                 if logstash_port is not None:
-                    if LOGSTASH_PORT is not None:
-                        CafyLog.logstash_port = int(LOGSTASH_PORT)
-                    else:
-                        CafyLog.logstash_port = logstash_port
+                    CafyLog.logstash_port = logstash_port
+                if LOGSTASH_PORT is not None:
+                    CafyLog.logstash_port = int(LOGSTASH_PORT)
+
 
                 if debug_server is not None:
                     CafyLog.debug_server = debug_server
@@ -527,10 +526,6 @@ def pytest_configure(config):
             test_bed_file = CafyLog.topology_file
             input_file = CafyLog.test_input_file
 
-            files = {'testbed_file': open(test_bed_file, 'rb'),
-                    'input_file': open(input_file, 'rb')}
-
-
             if CafyLog.debug_server is None: #Ask if we have to consider a default name
                 print("debug_server name not provided in topo file")
             elif CLS and int(CLS) and CafyLog.registration_id:
@@ -538,6 +533,8 @@ def pytest_configure(config):
                 log.info("Registration ID: %s" %CafyLog.registration_id)
             else:
                 try:
+                    files = {'testbed_file': open(test_bed_file, 'rb'),
+                            'input_file': open(input_file, 'rb')}
                     url = 'http://{0}:5001/create/'.format(CafyLog.debug_server)
                     log.info("Calling Registration service to register the test execution (url:%s)" %url)
                     response = _requests_retry(log, url, 'POST', files=files, data=params, timeout = 300)
