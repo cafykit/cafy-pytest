@@ -1,11 +1,8 @@
 import time
-import pytest
 from logger.cafylog import CafyLog
 import os
 import inspect
-from jinja2 import Template
 import functools
-import sys
 import inspect
 import requests
 import json
@@ -20,21 +17,33 @@ class TimeCollectorPlugin:
         self.total_set_command_time = 0
         self.total_get_command_time = 0
 
-    def update_granular_time_testcase_dict(self, current_test, event, method_name, elapsed_time ):
+    def update_granular_time_testcase_dict(self, current_test, event, method_name, elapsed_time, feature_type):
         """
         granular_time_testcase_dict
         param current_test: current_test
         param event: command like set , get or time.sleep
         param method_name: method name
         param elapsed_time: total time for each command ie, set or get
+        param feature_type: infra or non-infra
         """
         if current_test not in self.granular_time_testcase_dict:
             self.granular_time_testcase_dict[current_test] = dict()
         if event not in self.granular_time_testcase_dict[current_test]:
             self.granular_time_testcase_dict[current_test][event] = dict()
         if method_name not in self.granular_time_testcase_dict[current_test][event]:
-            self.granular_time_testcase_dict[current_test][event][method_name] = []
-        self.granular_time_testcase_dict[current_test][event][method_name].append(float(elapsed_time))
+            self.granular_time_testcase_dict[current_test][event][method_name] = list()
+        self.granular_time_testcase_dict[current_test][event][method_name].append([float(elapsed_time),feature_type])
+    
+    def get_method_type(self,method):
+        '''
+        method get_method_type
+        param method : method 
+        '''
+        file_path = method.__code__.co_filename
+        feature_type = None
+        if file_path:
+            feature_type = "infra" if "lib/feature_lib" in file_path or "lib/hw" in file_path else "non-infra"
+        return feature_type
 
     def measure_time_for_set_or_get_methods(self, method, cls_name):
         """
@@ -54,10 +63,11 @@ class TimeCollectorPlugin:
             if current_test not in self.granular_time_testcase_dict:
                 self.granular_time_testcase_dict[current_test] = dict()
             method_name = method.__name__
+            feature_type = self.get_method_type(method)
             if method_name.startswith('set'):
-                self.update_granular_time_testcase_dict(current_test,'set_command', ".".join([cls_name, method.__name__]), elapsed_time)
+                self.update_granular_time_testcase_dict(current_test,'set_command', ".".join([cls_name, method.__name__]), elapsed_time, feature_type)
             elif method_name.startswith('get'):
-                self.update_granular_time_testcase_dict(current_test, 'get_command', ".".join([cls_name, method.__name__]), elapsed_time)
+                self.update_granular_time_testcase_dict(current_test, 'get_command', ".".join([cls_name, method.__name__]), elapsed_time, feature_type)
             return result
         return wrapper
 
@@ -79,7 +89,8 @@ class TimeCollectorPlugin:
                 self.original_sleep(duration)
                 end_time = time.perf_counter()
                 elapsed_time = '%.2f' % (end_time - start_time)
-                self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time)
+                feature_type = self.get_method_type(caller_method)
+                self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time, feature_type)
 
     def patch_set_or_get_methods_for_test_instance(self, item):
         """
@@ -173,15 +184,16 @@ class TimeCollectorPlugin:
         tmp_dict = {}
         for command, timings_list in data.items():
             if isinstance(timings_list, list):
-                total_sum = sum(timings_list)
+                total_sum = sum(sublist[0] for sublist in timings_list)
                 length = len(timings_list)
+                feature_type = timings_list[0][1]
                 if event == 'sleep_time':
                     self.total_sleep_time = self.total_sleep_time + total_sum
                 elif event == 'set_command':
                     self.total_set_command_time = self.total_set_command_time + total_sum
                 elif event == 'get_command':
                     self.total_get_command_time = self.total_get_command_time + total_sum
-                tmp_dict[command] = ["{:.2f}".format(total_sum), length]
+                tmp_dict[command] = ["{:.2f}".format(total_sum), length, feature_type]
             else:
                 tmp_dict[command] = timings_list
         return tmp_dict
@@ -197,15 +209,15 @@ class TimeCollectorPlugin:
             if 'sleep_time' in events:
                 time_report[test_case]['sleep_time'] = self.get_time_data(events["sleep_time"],'sleep_time')
             else:
-                time_report[test_case]['sleep_time'] =  {}
+                time_report[test_case]['sleep_time'] =  dict()
             if 'set_command' in events:
                 time_report[test_case]['set_command'] = self.get_time_data(events["set_command"],'set_command')
             else:
-                time_report[test_case]['set_command'] = {}
+                time_report[test_case]['set_command'] = dict()
             if 'get_command' in events:
                 time_report[test_case]['get_command'] = self.get_time_data(events["get_command"],'get_command')
             else:
-                time_report[test_case]['get_command'] = {}
+                time_report[test_case]['get_command'] = dict()
 
             time_report[test_case]['total_sleep_time'] = "{:.2f}".format(self.total_sleep_time)
             time_report[test_case]['total_set_command_time'] = "{:.2f}".format(self.total_set_command_time)
@@ -238,12 +250,37 @@ class TimeCollectorPlugin:
         except Exception as e:
             print(e)
 
+    def get_tranformed_gta_data(self, gta):
+        '''
+        get_tranformed_gta_data
+        :param gta : gta data
+        '''
+        transformed_gta = dict()
+        for key, value in gta.items():
+            transformed_gta[key] = {"categories": {}, "totals": {}}
+            if value is not None:
+                for category, data in value.items():
+                    if category.startswith("total_"):
+                        transformed_gta[key]["totals"][category] = float(data)
+                    else:
+                        transformed_gta[key]["categories"][category] = [
+                            {
+                                "source": method.replace(".", "."),
+                                "total_time": float(values[0]),
+                                "occurence": float(values[1]),
+                                "type": values[2]
+                            }
+                            for method, values in data.items()
+                        ]
+        return transformed_gta
+
     def pytest_terminal_summary(self, terminalreporter):
         '''
         Method pytest_terminal_summary : terminal reporting 
         return : None
         '''
         time_report = self.collect_granular_time_accouting_report()
+        gta_data = self.get_tranformed_gta_data(time_report)
         #Update gta data into mongo db
         run_id = os.environ.get("CAFY_RUN_ID", 'local_run')
-        self.add_gta_data_into_db(time_report,run_id)
+        self.add_gta_data_into_db(gta_data,run_id)
