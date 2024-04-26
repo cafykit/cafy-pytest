@@ -281,6 +281,10 @@ class TimeCollectorPlugin:
         '''
         time_report = self.collect_granular_time_accouting_report()
         gta_data = self.get_tranformed_gta_data(time_report)
+        path=CafyLog.work_dir
+        file_name='cafy_gta.json'
+        with open(os.path.join(path, file_name), 'w') as fp:
+            json.dump(gta_data,fp)
         #Update gta data into mongo db
         run_id = os.environ.get("CAFY_RUN_ID", 'local_run')
         self.add_gta_data_into_db(gta_data,run_id)
