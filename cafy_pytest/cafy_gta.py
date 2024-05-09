@@ -16,6 +16,7 @@ class TimeCollectorPlugin:
         self.total_sleep_time = 0
         self.total_set_command_time = 0
         self.total_get_command_time = 0
+        self.command_list = ['set_command','get_command','sleep_time']
 
     def update_granular_time_testcase_dict(self, current_test, event, method_name, elapsed_time, feature_type):
         """
@@ -42,7 +43,7 @@ class TimeCollectorPlugin:
         file_path = method.__code__.co_filename
         feature_type = None
         if file_path:
-            feature_type = "infra" if "lib/feature_lib" in file_path or "lib/hw" in file_path else "non-infra"
+            feature_type = "non-infra" if "lib/feature_lib" in file_path or "lib/hw" in file_path else "infra"
         return feature_type
 
     def measure_time_for_set_or_get_methods(self, method, cls_name):
@@ -143,7 +144,19 @@ class TimeCollectorPlugin:
         else:
             self.test_case_name = f"{item.name}"
         return None
-
+    
+    def update_gta_dict(self,current_test, command):
+        '''
+        update_gta_dict
+        :param current_test: current_test
+        :param command: command
+        '''
+        if command not in self.granular_time_testcase_dict[current_test]:
+            self.granular_time_testcase_dict[current_test][command] = dict()
+        if hasattr(CafyLog,"gta_dict") and command in CafyLog.gta_dict:
+            for key, value in CafyLog.gta_dict[command].items():
+                self.granular_time_testcase_dict[current_test][command][key] = value
+        
     def update_CafyLog_gta_dict(self, current_test):
         """
         Update the CafyLog Granular Time Accounting (GTA) dictionary with timing information for the current test
@@ -152,16 +165,8 @@ class TimeCollectorPlugin:
         """
         if current_test not in self.granular_time_testcase_dict:
             self.granular_time_testcase_dict[current_test] = dict()
-        if 'set_command' not in self.granular_time_testcase_dict[current_test]:
-            self.granular_time_testcase_dict[current_test]['set_command'] = dict()
-        if hasattr(CafyLog,"gta_dict") and 'set_command' in CafyLog.gta_dict:
-            for key, value in CafyLog.gta_dict['set_command'].items():
-                self.granular_time_testcase_dict[current_test]['set_command'][key] = value
-        if 'get_command' not in self.granular_time_testcase_dict[current_test]:
-            self.granular_time_testcase_dict[current_test]['get_command'] = dict()
-        if hasattr(CafyLog,"gta_dict") and 'get_command' in CafyLog.gta_dict:
-            for key, value in CafyLog.gta_dict['get_command'].items():
-                self.granular_time_testcase_dict[current_test]['get_command'][key] = value
+        for command in self.command_list:
+            self.update_gta_dict(current_test,command)
 
     def pytest_runtest_teardown(self, item, nextitem):
         """
