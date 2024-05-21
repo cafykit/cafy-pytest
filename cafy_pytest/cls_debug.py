@@ -240,7 +240,7 @@ class DebugAdapter:
     def analyzer_log(self, work_dir):
         params = {"reg_id": self.registration_id,
                   "debug_server_name": self.debug_server}
-        url = f'http://{self.debug_server}:5001/get_analyzer_log/')
+        url = f'http://{self.debug_server}:5001/get_analyzer_log/'
         try:
             response = requests_retry(self.log, url, 'GET', data=params, timeout=300)
             if response is not None and response.status_code == 200:
