@@ -41,7 +41,6 @@ from _pytest.terminal import TerminalReporter
 from _pytest.runner import runtestprotocol
 
 # Cafykit imports
-from debug import DebugLibrary
 from logger.cafylog import CafyLog
 from topology.topo_mgr.topo_mgr import Topology
 from utils.cafyexception import CafyException
@@ -50,6 +49,7 @@ from utils.collectors.confest import Config
 from .cafy import Cafy
 from .cafy_pdb import CafyPdb
 from .cafypdb_config import CafyPdb_Configs
+from .cls_debug import DebugAdapter, ClsAdapter
 
 
 collection_setup = Config()
@@ -60,6 +60,7 @@ CLS = os.environ.get("CLS", None)
 cls_host = os.environ.get("CLS_HOST", None)
 LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
+
 
 setattr(pytest,"allure",Cafy)
 
@@ -347,6 +348,7 @@ def pytest_configure(config):
     smtp_port = config.option.smtp_port
     no_email = config.option.no_email
     no_detail_message = config.option.no_detail_message
+    #setting the debug_enable.
     cafykit_debug_enable = config.option.debug_enable
     CafyLog.topology_file = config.option.topology_file
     CafyLog.test_input_file = config.option.test_input_file
@@ -419,25 +421,22 @@ def pytest_configure(config):
                 #then, save this attibute in a variable called debug_server which will be
                 #host to run debug services like registrationa and collector
                 topo_obj = Topology(CafyLog.topology_file)
+
+
+                ### This is needed for local runs or local instances of debug-engine or CLS.
                 debug_server = topo_obj.get_debug_server_name()
                 logstash_port = topo_obj.get_logstash_port()
                 logstash_server_name = topo_obj.get_logstash_server_name()
 
                 if logstash_server_name is not None:
                     CafyLog.logstash_server = logstash_server_name
-                if LOGSTASH_SERVER is not None:
-                    CafyLog.logstash_server = LOGSTASH_SERVER
-               
                 if logstash_port is not None:
                     CafyLog.logstash_port = logstash_port
-                if LOGSTASH_PORT is not None:
-                    CafyLog.logstash_port = int(LOGSTASH_PORT)
-
-
                 if debug_server is not None:
                     CafyLog.debug_server = debug_server
                     log = CafyLog("cafy")
                     log.info("CafyLog.debug_server : %s" %CafyLog.debug_server )
+                ### till here/.
             else:
                 #TODO: Address how u want to save topo file to archive if it is an url
                 topo_file = None
@@ -515,48 +514,59 @@ def pytest_configure(config):
                 del os.environ["hybrid_mode"]
 
         #Debug Registration Server code
-        if CLS and int(CLS):
-            registration_id = os.environ.get("REG_ID", None)
-            CafyLog.registration_id = registration_id 
-        reg_dict = {}
-        if cafykit_debug_enable: #If user wants to enable our cafy's debug
-            os.environ['cafykit_debug_enable'] = 'True' # Set this environ variable to be used in session_finish()
-            params = {"test_suite":script_name, "test_id":0,
-                    "debug_server_name":CafyLog.debug_server}
-            test_bed_file = CafyLog.topology_file
-            input_file = CafyLog.test_input_file
-
-            if CafyLog.debug_server is None: #Ask if we have to consider a default name
-                print("debug_server name not provided in topo file")
-            elif CLS and int(CLS) and CafyLog.registration_id:
-                print("CLS is enabled and registration_id is already created")
-                log.info("Registration ID: %s" %CafyLog.registration_id)
-            else:
-                try:
-                    files = {'testbed_file': open(test_bed_file, 'rb'),
-                            'input_file': open(input_file, 'rb')}
-                    url = 'http://{0}:5001/create/'.format(CafyLog.debug_server)
-                    log.info("Calling Registration service to register the test execution (url:%s)" %url)
-                    response = _requests_retry(log, url, 'POST', files=files, data=params, timeout = 300)
-                    if response.status_code == 200:
-                        #reg_dict will contain testbed, input, debug files and reg_id
-                        reg_dict = response.text # This reg_dict is a string of dict
-                        reg_dict = json.loads(reg_dict)
-                        registration_id = reg_dict['reg_id']
-                        log.info("Registration ID: %s" %registration_id)
-                        CafyLog.registration_id = registration_id
-                        with open(os.path.join(CafyLog.work_dir, "cafy_reg_id.txt"), "w") as f:
-                            f.write(CafyLog.registration_id)
-                        log.title("Start run for registration id: %s" % CafyLog.registration_id)
-                        # log.set_registration_id(registration_id=registration_id)
-                    else:
-                        reg_dict = {}
-                        log.info("Registration server returned code %d " % response.status_code)
-                except Exception as e:
-                        log.warning("Http call to registration service url:%s is not successful" % url)
-                        log.warning("Error {}".format(e))
+        #Cant introduce switch case as this plugin is common for 3.6 and 3.11 env.
+        call_registeration = False
+        if CLS and not cafykit_debug_enable :
+            call_registeration = False
+            reg_id = os.environ.get("REG_ID", None)
+            CafyLog.logstash_server = LOGSTASH_SERVER
+            CafyLog.logstash_port = int(LOGSTASH_PORT)
+            #set the debug_server to be NONE.
+            CafyLog.debug_server = None
+        elif CLS and cafykit_debug_enable:
+            call_registeration = True
+            reg_id = os.environ.get("REG_ID", None)
+            CafyLog.logstash_server = LOGSTASH_SERVER
+            CafyLog.logstash_port = int(LOGSTASH_PORT)
+            if not CafyLog.debug_server:
+                call_registeration = False
+        elif not CLS and cafykit_debug_enable:
+            call_registeration=True
+            reg_id = None
         else:
-            reg_dict = {}
+            #unset everything.
+            CafyLog.debug_server = None
+            CafyLog.logstash_server = None
+            CafyLog.logstash_port = None
+            reg_id = None
+        
+        reg_dict = {}
+        if call_registeration:
+            kwargs = {
+                    'reg_id': reg_id,
+                    'debug_file': CafyLog.test_input_file,
+                    'topo_file' : CafyLog.topo_file,
+                    'test_name' : CafyLog.test_name,
+                    'logger' : log,
+                    'debug_server' : CafyLog.debug_server
+            }
+            ## Only needed in case if debug is enabled.
+            
+            from .cls_debug import DebugAdapter
+            global register_object
+            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=log, kwargs=kwargs)
+            response = register_object.register_test()
+            if response['status'] != "OK":
+                log.info(response['msg'])
+            else:
+                log.info(f'CLS enable : {CLS}')
+                log.info(f' Debug Enable : f{cafykit_debug_enable}')
+                log.info(f' reg_id dict : {reg_dict}')
+                reg_dict = response['data']
+                CafyLog.registration_id = reg_dict['reg_id']
+                with open(os.path.join(CafyLog.work_dir, "cafy_reg_id.txt"), "w") as f:
+                                f.write(reg_dict['reg_id'])
+        
 
         config._email = EmailReport(email_list,
                                     email_from,
@@ -578,7 +588,6 @@ def pytest_configure(config):
         reporter.write_line("Virtual Env: %s" %(os.getenv("VIRTUAL_ENV")))
         reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
         reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
-
 
 
 def pytest_unconfigure(config):
@@ -740,14 +749,10 @@ def pytest_collection_modifyitems(session, config, items):
         except Exception as e:
             log.warning("Error while sending the live status of testcases collected: {}".format(e))
 
-
-
-
 def get_datentime():
     '''return date and time as string'''
     _time = time.time()
     return datetime.fromtimestamp(_time).strftime('%Y%m%d-%H%M%S')
-
 
 def _setup_archive_env():
     '''setup archive env'''
@@ -1027,23 +1032,8 @@ class EmailReport(object):
         params = {"test_case": test_case,
                   "reg_id": reg_id,
                   "debug_server_name": debug_server}
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/initiate_analyzer/".format(CafyLog.debug_server)
-                self.log.info("Calling registration service (url:%s) to initialize analyzer" % url)
-                response = _requests_retry(self.log, url, 'POST', data=params, timeout=300)
-                if response.status_code == 200:
-                    self.log.info("Analyzer initialized")
-                    return True
-                else:
-                    self.log.warning("Analyzer failed %d" % response.status_code)
-                    return False
-            except Exception as e:
-                self.log.warning("Http call to registration service url:%s is not successful" % url)
-                self.log.warning("Error {}".format(e))
-                return False
+        return register_object.initiate_analyzer(params=params,headers=headers)
+
 
     def pytest_runtest_setup(self, item):
         test_case = self.get_test_name(item.nodeid)
@@ -1079,7 +1069,6 @@ class EmailReport(object):
         if bool(marker):
             for arg in marker.args:
                 if request.node.parent.obj.has_autofail_trigger(arg):
-
                     raise CafyException.AutoFailMarkerException("Failing this testcase automatically as this has triggered condition %s from %s()" \
                                                                 %(arg, CafyLog._triggerFlags[arg]))
                     #pytest.fail("Failing this testcase automatically as this has triggered condition %s" % arg)
@@ -1087,39 +1076,18 @@ class EmailReport(object):
     def post_testcase_status(self, reg_id, test_case, debug_server):
         analyzer_status = False
         headers = {'content-type': 'application/json'}
-
         params = {"test_case": test_case,
                   "reg_id": reg_id,
                   "debug_server_name": debug_server}
-
-        try:
-            analyzer_status = self.check_analyzer_status(params, headers)
-            if not analyzer_status:
-                self.log.info("Analyzer still working, Continuing Test case")
-        except Exception as err:
-            self.log.info("Exception hit while checking analyzer status {}".format(repr(err)))
-            self.log.info("Analysis Failed exiting check")
-            analyzer_status = False
-
+        analyzer_status = self.check_analyzer_status(params, headers)
+        if not analyzer_status:
+            self.log.info("Analyzer still working, Continuing Test case")
         return analyzer_status
 
     def check_analyzer_status(self, params, headers):
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/end_test_case/".format(CafyLog.debug_server)
-                self.log.info("Calling registration service (url:%s) to check analyzer status" % url)
-                response = _requests_retry(self.log, url, 'GET', data=params, timeout=30, retry_count=2)
-                if response.status_code == 200:
-                    return response.json()['analyzer_status']
-                else:
-                    self.log.info("Analyzer status check failed %d" % response.status_code)
-                    raise CafyException.CafyBaseException("Analyzer is failing")
-            except Exception as e:
-                self.log.info("Http call to registration service url:%s is not successful" % url)
-                self.log.info("Error {}".format(e))
-                raise CafyException.CafyBaseException("Analyzer is failing")
+        result = register_object.analyzer_status(params=params,headers=headers)
+        self.log.info(f'result of analyzer {result}')
+        return result
 
     @pytest.hookimpl(trylast=True, hookwrapper=True)
     def pytest_runtest_makereport(self, item, call):
@@ -1329,27 +1297,7 @@ class EmailReport(object):
         if report.when == 'setup':
             self.log.set_testcase(testcase_name)
             self.log.title("Start test:  %s" %(testcase_name))
-            #Notify testcase_name to handshake server
-            #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to handshake server
-            if self.reg_dict:
-                params = {"testcase_name": testcase_name}
-                headers = {'content-type': 'application/json'}
-                if CafyLog.debug_server is None:
-                    self.log.error("debug_server name not provided in topology file")
-                else:
-                    try:
-                        url = 'http://{0}:5001/registertest/'.format(CafyLog.debug_server)
-                        #self.log.info("Calling registration service to start handshake(url:%s" % url)
-                        response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
-                        if response.status_code == 200:
-                            self.log.info("Handshake to registration service successful")
-                        else:
-                            self.log.warning("Handshake part of registration server returned code %d " % response.status_code)
-                    except Exception as e:
-                        self.log.warning("Error {}".format(e))
-                        self.log.warning("Http call to registration service url:%s is not successful" % url)
-
-
+            register_object.register_testcase(testcase_name=testcase_name)
 
         if report.when == 'teardown':
             if self.reg_dict:
@@ -1984,56 +1932,11 @@ class EmailReport(object):
         :param params: failure details of testcase for given run
         :param headers: headers associated with api request call
         """
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/startdebug/v1/".format(CafyLog.debug_server)
-                self.log.info("Calling registration service (url:%s) to start collecting" % url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=1500)
-                if response.status_code == 200:
-                    waiting_time = 0
-                    poll_flag = True
-                    while(poll_flag):
-                        url_status = "http://{0}:5001/collectionstatus/".format(CafyLog.debug_server)
-                        response = _requests_retry(self.log, url_status, 'POST', json=params, headers=headers, timeout=30)
-                        if response.status_code == 200:
-                            message = response.json()
-                            if message["collector_status"] == True:
-                                return response
-                            else:
-                                time.sleep(30)
-                                waiting_time = waiting_time + 30
-                                if waiting_time > 900:
-                                    poll_flag = False
-                        else:
-                            poll_flag = False
-                            self.log.info("collection status api return status other then 200 response %d" % response.status_code)
-                else:
-                    self.log.warning("start_debug part of handshake server returned code %d" % response.status_code)
-                    return None
-            except Exception as e:
-                self.log.warning("Error {}".format(e))
-                self.log.warning("Http call to registration service url:%s is not successful" %url)
-                return None
+        return register_object.collector_call(params=params, headers=headers)
+    
 
     def invoke_rc_on_failed_testcase(self, params, headers):
-        if CafyLog.debug_server is None:
-            self.log.info("debug_server name not provided in topo file")
-        else:
-            try:
-                url = "http://{0}:5001/startrootcause/".format(CafyLog.debug_server)
-                self.log.info("Calling RC engine to start rootcause (url:%s)" % url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=600)
-                if response.status_code == 200:
-                    return response
-                else:
-                    self.log.warning("startrootcause part of RC engine returned code %d" % response.status_code)
-                    return None
-            except Exception as e:
-                self.log.warning("Error {}".format(e))
-                self.log.warning("Http call to root cause service url:%s is not successful" % url)
-                return None
+        return register_object.rc_call(params=params, headers=headers)
 
     #method: To dump the mode report as testcase_mode.json file in work_dir
     def dump_hybrid_mode_report(self):
@@ -2189,24 +2092,7 @@ class EmailReport(object):
                 return
 
     def _get_analyzer_log(self):
-        params = {"reg_id": CafyLog.registration_id,
-                  "debug_server_name": CafyLog.debug_server}
-        url = 'http://{0}:5001/get_analyzer_log/'.format(CafyLog.debug_server)
-        try:
-            response = _requests_retry(self.log, url, 'GET', data=params, timeout=300)
-            if response is not None and response.status_code == 200:
-                if response.text:
-                    if 'Content-Disposition' in response.headers:
-                        analyzer_log_filename = response.headers['Content-Disposition'].split('filename=')[-1]
-                        analyzer_log_file_full_path = os.path.join(CafyLog.work_dir, analyzer_log_filename)
-                        with open(analyzer_log_file_full_path, 'w') as f:
-                            f.write(response.text)
-                            self.log.info('{} saved at {}'.format(analyzer_log_filename, CafyLog.work_dir))
-                    else:
-                        self.log.info("No analyzer log file received")
-        except Exception as e:
-            self.log.warning("Error {}".format(e))
-            self.log.info('No Analyzer log file receiver')
+        register_object.analyzer_log(work_dir=CafyLog.work_dir)
 
 
     def _generate_allure_report(self):
@@ -2258,40 +2144,7 @@ class EmailReport(object):
                       "topo_file": CafyLog.topology_file,
                       "input_file": CafyLog.test_input_file}
             headers = {'content-type': 'application/json'}
-            try:
-                url = 'http://{0}:5001/uploadcollectorlogfile/'.format(CafyLog.debug_server)
-                print("url = ", url)
-                self.log.info("Calling registration upload collector logfile service (url:%s)" %url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
-                if response is not None and response.status_code == 200:
-                    if response.text:
-                        summary_log = response.text
-                        if '+'*120 in response.text:
-                            summary_log, verbose_log = response.text.split('+'*120)
-
-                        self.log.info ("Debug Collector logs: %s" %(summary_log))
-                        if 'Content-Disposition' in response.headers:
-                            debug_collector_log_filename = response.headers['Content-Disposition'].split('filename=')[-1]
-                            collector_log_file_full_path = os.path.join(CafyLog.work_dir,debug_collector_log_filename)
-                            with open(collector_log_file_full_path, 'w') as f:
-                                f.write(response.text)
-                            try:
-                                DebugLibrary.convert_collector_logs_to_json(collector_log_file_full_path)
-                            except:
-                                self.log.info("Failed to convert collector logs to json")
-                        else:
-                            self.log.info("No collector log file received")
-
-                url = 'http://{0}:5001/deleteuploadedfiles/'.format(CafyLog.debug_server)
-                self.log.info("Calling registration delete upload file service (url:%s)" % url)
-                response = _requests_retry(self.log, url, 'POST', json=params, headers=headers, timeout=300)
-                if response.status_code == 200:
-                    self.log.info("Topology and input files deleted from registration server")
-                else:
-                    self.log.info("Error in deleting topology and input files from registration server")
-            except Exception as e:
-                self.log.warning("Error {}".format(e))
-                self.log.info("Error in uploading collector logfile")
+            register_object.collector_log(params=params, headers=headers, work_dir=CafyLog.work_dir)
 
         try:
             with open(os.path.join(CafyLog.work_dir, "retest_data.json"), "w") as f:
@@ -2304,31 +2157,6 @@ class EmailReport(object):
 
         if self.collection:
             self.collection_manager.deconfigure()
-        '''
-        line_regex = re.compile(r"\-\w*\-{1,}\-\d{4}\-\d{2}\-\d{2}T\d*\-\d*\-\d*\[([\w\-:]*)\](\[.*\])?>")
-        log_filename = os.path.join(CafyLog.work_dir, 'all.log')
-        if os.path.exists(log_filename):
-            output_filepath = None
-            with open(log_filename, "r") as in_file:
-                # Open input file in 'read' mode and loop over each log line
-                for line in in_file:
-                    # If log line matches our regex, print to console, and output file
-                    output = line_regex.search(line)
-                    if output:
-                        if output.group(1) == 'MainThread':
-                            pass
-                        else:
-                            output_filename = "thread_"+ output.group(1) + ".log"
-                            output_filepath = os.path.join(CafyLog.work_dir, output_filename)
-                            with open(output_filepath, "a") as out_file:
-                                print(line)
-                                out_file.write(line)
-                    else:
-                        if output_filepath:
-                            with open(output_filepath, "a") as out_file:
-                                print(line)
-                                out_file.write(line)
-        '''
 
 class CafyReportData(object):
 
