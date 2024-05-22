@@ -93,7 +93,7 @@ class DebugAdapter:
             log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             log_handler = logging.StreamHandler('stdout')
             log_handler.setFormatter(log_formatter)
-            log_handler.setLevel(self.logger.DEBUG)
+            # log_handler.setLevel('debug')
             self.logger.addHandler(log_handler)
     
     def register_test(self):
