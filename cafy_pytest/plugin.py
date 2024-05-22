@@ -364,9 +364,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "Future(name): mark test that are planned for future")
     config.addinivalue_line("markers", "Feature(name): mark feature of a testcase")
     config.addinivalue_line("markers", "autofail(name): mark test to Fail when  this testcase has triggered autofail condition")
-
-    import pdb
-    pdb.set_trace()
     if script_list:
         script_path = script_list[0]
         if '::' in script_path:
@@ -555,7 +552,7 @@ def pytest_configure(config):
 
             from .cls_debug import DebugAdapter
             global register_object
-            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=None, kwargs=kwargs)
+            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=None, **kwargs)
             response = register_object.register_test()
             if response['status'] != "OK":
                 log.info(f'register response",{response["msg"]}')

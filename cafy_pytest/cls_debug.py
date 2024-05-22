@@ -78,6 +78,8 @@ class DebugAdapter:
             debug (bool, optional): _description_. Defaults to False.
             logger (object, optional): _description_. Defaults to None.
         """
+        import pdb
+        pdb.set_trace()
         self.cls = cls
         self.debug = debug
         self.debug_server = kwargs.get("debug_server", None)
