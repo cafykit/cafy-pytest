@@ -91,9 +91,10 @@ class DebugAdapter:
             from logging import getLogger
             self.logger = getLogger(__name__)
             log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            log_handler = self.logger.StreamHandler('stdout')
+            log_handler = logging.StreamHandler('stdout')
             log_handler.setFormatter(log_formatter)
             log_handler.setLevel(self.logger.DEBUG)
+            self.logger.addHandler(log_handler)
     
     def register_test(self):
         if not self.debug:
