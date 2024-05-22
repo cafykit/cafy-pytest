@@ -97,6 +97,7 @@ class DebugAdapter:
             self.logger.addHandler(log_handler)
     
     def register_test(self):
+        self.logger.info(self.debug_server,self.test_name, self.debug , self.registeration_id)
         if not self.debug:
             return {"status": None, "msg": "debug is not enabled"}
         if not self.test_name:
