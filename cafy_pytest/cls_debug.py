@@ -107,8 +107,7 @@ class DebugAdapter:
         params ={
             "test_suite" : self.test_name,
             "test_id" : 0,
-            "debug_Server_name" : self.debug_server,
-            "reg_id" : self.registeration_id
+            "debug_Server_name" : self.debug_server
         }
         files = {
             'testbed_file': open(self.topo_file, 'rb'),
@@ -119,7 +118,6 @@ class DebugAdapter:
             url = f'http://{self.debug_server}:5001/create/'
             self.logger.info(f'Calling Registration service to register the test execution (url:{url})')
             response = requests_retry(self.logger, url, 'POST', files=files, data=params, timeout = 300)
-            response = request(url, 'POST', files=files, data=params, timeout = 300)
             if response.status_code == 200:
                 #reg_dict will contain testbed, input, debug files and reg_id
                 reg_dict = response.text # This reg_dict is a string of dict
