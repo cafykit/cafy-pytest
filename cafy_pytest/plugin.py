@@ -556,7 +556,7 @@ def pytest_configure(config):
             register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=None, kwargs=kwargs)
             response = register_object.register_test()
             if response['status'] != "OK":
-                log.info("register response",response['msg'])
+                log.info(f'register response",{response["msg"]}')
             else:
                 log.info(f'CLS enable : {CLS}')
                 log.info(f'Debug Enable : f{cafykit_debug_enable}')
