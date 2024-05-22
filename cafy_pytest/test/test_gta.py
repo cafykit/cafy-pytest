@@ -62,7 +62,7 @@ class TestTimeCollectorPlugin:
         plugin.original_sleep.assert_called_once_with(duration)
 
         # Check if the granular time is updated correctly
-        assert plugin.granular_time_testcase_dict["test_case_1"]["sleep_time"]["TestTimeCollectorPlugin.test_measure_sleep_time.time.sleep"][0] == [float(1.5), 'infra']
+        assert plugin.granular_time_testcase_dict["test_case_1"]["sleep_time"]["TestTimeCollectorPlugin.test_measure_sleep_time.time.sleep"][0] == [float(1500000.0), 'infra']
 
     def test_update_CafyLog_gta_dict(self, plugin):
         """
