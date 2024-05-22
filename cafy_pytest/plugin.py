@@ -365,6 +365,8 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "Feature(name): mark feature of a testcase")
     config.addinivalue_line("markers", "autofail(name): mark test to Fail when  this testcase has triggered autofail condition")
 
+    import pdb
+    pdb.set_trace()
     if script_list:
         script_path = script_list[0]
         if '::' in script_path:
