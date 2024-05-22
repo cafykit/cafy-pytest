@@ -553,20 +553,19 @@ def pytest_configure(config):
 
             from .cls_debug import DebugAdapter
             global register_object
-            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=CafyLog, kwargs=kwargs)
+            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=None, kwargs=kwargs)
             response = register_object.register_test()
             if response['status'] != "OK":
-                log.info(response['msg'])
+                log.info("register response",response['msg'])
             else:
                 log.info(f'CLS enable : {CLS}')
-                log.info(f' Debug Enable : f{cafykit_debug_enable}')
-                log.info(f' reg_id dict : {reg_dict}')
+                log.info(f'Debug Enable : f{cafykit_debug_enable}')
+                log.info(f'reg_id dict : {reg_dict}')
                 reg_dict = response['data']
                 CafyLog.registration_id = reg_dict['reg_id']
                 with open(os.path.join(CafyLog.work_dir, "cafy_reg_id.txt"), "w") as f:
                                 f.write(reg_dict['reg_id'])
         
-
         config._email = EmailReport(email_list,
                                     email_from,
                                     email_from_passwd,
@@ -588,7 +587,6 @@ def pytest_configure(config):
         reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
         reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
 
-
 def pytest_unconfigure(config):
     email = getattr(config, '_email', None)
     if email:
@@ -608,9 +606,6 @@ def pytest_unconfigure(config):
             f.write(tmp_str_text)
     except:
         pass
-
-
-
 
 def pytest_generate_tests(metafunc):
 
@@ -659,7 +654,6 @@ def pytest_generate_tests(metafunc):
                 print("{0} not found in {1}".format(metafunc.function.__name__,nodeid_count_dict ))
         metafunc.fixturenames.remove('tmp_ct')
 
-
 def get_testcase_name(name):
     report_name = name.replace("::()::", ".")
     report_tokens = report_name.split('::')
@@ -668,7 +662,6 @@ def get_testcase_name(name):
     else:
         report_name = test=report_tokens[-1]
     return report_name
-
 
 def pytest_collection_modifyitems(session, config, items):
     log = CafyLog("cafy")
