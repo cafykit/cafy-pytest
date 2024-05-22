@@ -58,7 +58,9 @@ class TimeCollectorPlugin:
             start_time = time.perf_counter()
             result = method(*args, **kwargs)
             end_time = time.perf_counter()
-            elapsed_time = '%.2f' % (end_time - start_time)
+            elapsed_time_seconds = end_time - start_time
+            elapsed_time_microseconds = elapsed_time_seconds * 1000000
+            elapsed_time = '%.2f' % (elapsed_time_microseconds)
             # Update granular time at the test case level
             current_test = self.test_case_name
             if current_test not in self.granular_time_testcase_dict:
@@ -89,7 +91,9 @@ class TimeCollectorPlugin:
                 start_time = time.perf_counter()
                 self.original_sleep(duration)
                 end_time = time.perf_counter()
-                elapsed_time = '%.2f' % (end_time - start_time)
+                elapsed_time_seconds = end_time - start_time
+                elapsed_time_microseconds = elapsed_time_seconds * 1000000
+                elapsed_time = '%.2f' % (elapsed_time_microseconds)
                 feature_type = self.get_method_type(caller_method)
                 self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time, feature_type)
 
