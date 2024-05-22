@@ -1,7 +1,7 @@
 import requests
 import traceback
 from requests.adapters import HTTPAdapter
-from urllib3 import Retry
+from urllib3 import Retry, request
 import json
 import time
 import os
@@ -97,6 +97,8 @@ class DebugAdapter:
             self.logger.addHandler(log_handler)
     
     def register_test(self):
+        import pdb
+        pdb.set_trace()
         self.logger.info(self.debug_server,self.test_name, self.debug , self.registeration_id)
         if not self.debug:
             return {"status": None, "msg": "debug is not enabled"}
@@ -117,6 +119,7 @@ class DebugAdapter:
             url = f'http://{self.debug_server}:5001/create/'
             self.logger.info(f'Calling Registration service to register the test execution (url:{url})')
             response = requests_retry(self.logger, url, 'POST', files=files, data=params, timeout = 300)
+            response = request(url, 'POST', files=files, data=params, timeout = 300)
             if response.status_code == 200:
                 #reg_dict will contain testbed, input, debug files and reg_id
                 reg_dict = response.text # This reg_dict is a string of dict
