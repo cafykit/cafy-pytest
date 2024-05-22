@@ -546,15 +546,14 @@ def pytest_configure(config):
                     'reg_id': reg_id,
                     'debug_file': CafyLog.test_input_file,
                     'topo_file' : CafyLog.topology_file,
-                    'test_name' : CafyLog.test_name,
-                    'logger' : log,
+                    'test_name' : CafyLog.module_name,
                     'debug_server' : CafyLog.debug_server
             }
             ## Only needed in case if debug is enabled.
 
             from .cls_debug import DebugAdapter
             global register_object
-            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=log, kwargs=kwargs)
+            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=CafyLog, kwargs=kwargs)
             response = register_object.register_test()
             if response['status'] != "OK":
                 log.info(response['msg'])
