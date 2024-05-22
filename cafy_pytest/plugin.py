@@ -545,13 +545,13 @@ def pytest_configure(config):
             kwargs = {
                     'reg_id': reg_id,
                     'debug_file': CafyLog.test_input_file,
-                    'topo_file' : CafyLog.topo_file,
+                    'topo_file' : CafyLog.topology_file,
                     'test_name' : CafyLog.test_name,
                     'logger' : log,
                     'debug_server' : CafyLog.debug_server
             }
             ## Only needed in case if debug is enabled.
-            
+
             from .cls_debug import DebugAdapter
             global register_object
             register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=log, kwargs=kwargs)
