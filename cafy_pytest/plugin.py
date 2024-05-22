@@ -546,7 +546,7 @@ def pytest_configure(config):
                     'reg_id': reg_id,
                     'debug_file': CafyLog.test_input_file,
                     'topo_file' : CafyLog.topology_file,
-                    'test_name' : CafyLog.module_name,
+                    'test_name' : script_name,
                     'debug_server' : CafyLog.debug_server
             }
             ## Only needed in case if debug is enabled.
