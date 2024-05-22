@@ -87,9 +87,10 @@ class DebugAdapter:
         self.test_name = kwargs.get("test_name", None)
         self.logger = kwargs.get('logger', None)
         if not self.logger:
+            import logging
             from logging import getLogger
             self.logger = getLogger(__name__)
-            log_formatter = self.logger.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             log_handler = self.logger.StreamHandler('stdout')
             log_handler.setFormatter(log_formatter)
             log_handler.setLevel(self.logger.DEBUG)
