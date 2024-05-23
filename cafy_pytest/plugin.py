@@ -62,6 +62,7 @@ LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
 
 
+
 setattr(pytest,"allure",Cafy)
 
 if CAFY_REPO is None:
@@ -350,6 +351,8 @@ def pytest_configure(config):
     no_detail_message = config.option.no_detail_message
     #setting the debug_enable.
     cafykit_debug_enable = config.option.debug_enable
+    #setting for global access
+    CafyLog.debug_enable = cafykit_debug_enable
     CafyLog.topology_file = config.option.topology_file
     CafyLog.test_input_file = config.option.test_input_file
     CafyLog.tag_file = config.option.tag_file
@@ -522,13 +525,14 @@ def pytest_configure(config):
             CafyLog.logstash_port = int(LOGSTASH_PORT)
             #set the debug_server to be NONE.
             CafyLog.debug_server = None
+
         elif CLS and cafykit_debug_enable:
             call_registeration = True
             reg_id = os.environ.get("REG_ID", None)
             CafyLog.logstash_server = LOGSTASH_SERVER
             CafyLog.logstash_port = int(LOGSTASH_PORT)
-            if not CafyLog.debug_server:
-                call_registeration = False
+            #case where topo file is missing the debug server.
+            
         elif not CLS and cafykit_debug_enable:
             call_registeration=True
             reg_id = None
@@ -539,8 +543,13 @@ def pytest_configure(config):
             CafyLog.logstash_port = None
             reg_id = None
         
+        if CLS:
+            from .cls_debug import ClsAdapter
+            global cls_object
+            cls_object = ClsAdapter(cls_host=cls_host,logger=None,reg_id=reg_id)
+        
         reg_dict = {}
-        if call_registeration:
+        if call_registeration and CafyLog.debug_server:
             kwargs = {
                     'reg_id': reg_id,
                     'debug_file': CafyLog.test_input_file,
@@ -549,7 +558,6 @@ def pytest_configure(config):
                     'debug_server' : CafyLog.debug_server
             }
             ## Only needed in case if debug is enabled.
-
             from .cls_debug import DebugAdapter
             global register_object
             register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=None, **kwargs)
@@ -558,9 +566,9 @@ def pytest_configure(config):
                 log.info(f'register response",{response["msg"]}')
             else:
                 log.info(f'CLS enable : {CLS}')
-                log.info(f'Debug Enable : f{cafykit_debug_enable}')
-                log.info(f'reg_id dict : {reg_dict}')
+                log.info(f'Debug Enable : {cafykit_debug_enable}')
                 reg_dict = response['data']
+                log.info(f'reg_id dict : {reg_dict}')
                 CafyLog.registration_id = reg_dict['reg_id']
                 with open(os.path.join(CafyLog.work_dir, "cafy_reg_id.txt"), "w") as f:
                                 f.write(reg_dict['reg_id'])
@@ -999,27 +1007,10 @@ class EmailReport(object):
         :param testcase:
         :return:
         '''
-        try:
-            url = "{0}/api/collector/{1}/case-update".format(cls_host, CafyLog.registration_id)
-            params ={
-                   "case_name" : test_case
-            }
-            self.log.info("Calling cls service (url:%s) for testcase" % test_case)
-            response = _requests_retry(self.log, url, 'PUT', json=params, timeout=300)
-            if response.status_code == 200:
-                self.log.info("cls notified")
-                return True
-            else:
-                self.log.warning("cls notification failed %d" % response.status_code)
-                return False
-        except Exception as e:
-            self.log.warning("Http call to cls service url:%s is not successful" % url)
-            self.log.warning("Error {}".format(e))
-            return False
+        return cls_object.update_cls_testcase(test_case=test_case)
 
     def initiate_analyzer(self, reg_id, test_case, debug_server):
         headers = {'content-type': 'application/json'}
-
         params = {"test_case": test_case,
                   "reg_id": reg_id,
                   "debug_server_name": debug_server}
@@ -1288,7 +1279,8 @@ class EmailReport(object):
         if report.when == 'setup':
             self.log.set_testcase(testcase_name)
             self.log.title("Start test:  %s" %(testcase_name))
-            register_object.register_testcase(testcase_name=testcase_name)
+            if CafyLog.debug_enable:
+                register_object.register_testcase(testcase_name=testcase_name)
 
         if report.when == 'teardown':
             if self.reg_dict:
@@ -2124,11 +2116,10 @@ class EmailReport(object):
         }
         self.log.info("Test data generated at %s" % test_data_file)
         CafyLog.TestData.save(test_data_file,overwrite=True)
-        debug_enabled_status = os.getenv("cafykit_debug_enable", None)
 
         self._generate_allure_report()
 
-        if debug_enabled_status and CafyLog.registration_id:
+        if CafyLog.debug_enable and CafyLog.registration_id:
             self.log.title("End run for registration id: %s" % CafyLog.registration_id)
             self._get_analyzer_log()
             params = {"reg_id": CafyLog.registration_id,
