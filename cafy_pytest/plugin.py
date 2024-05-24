@@ -49,7 +49,6 @@ from utils.collectors.confest import Config
 from .cafy import Cafy
 from .cafy_pdb import CafyPdb
 from .cafypdb_config import CafyPdb_Configs
-from .cls_debug import DebugAdapter, ClsAdapter
 
 
 collection_setup = Config()
