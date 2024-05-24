@@ -1009,12 +1009,8 @@ class EmailReport(object):
         '''
         return cls_object.update_cls_testcase(test_case=test_case)
 
-    def initiate_analyzer(self, reg_id, test_case, debug_server):
-        headers = {'content-type': 'application/json'}
-        params = {"test_case": test_case,
-                  "reg_id": reg_id,
-                  "debug_server_name": debug_server}
-        return register_object.initiate_analyzer(params=params,headers=headers)
+    def initiate_analyzer(self, test_case):
+        return register_object.initiate_analyzer(testcase=test_case)
 
 
     def pytest_runtest_setup(self, item):
@@ -1023,9 +1019,7 @@ class EmailReport(object):
         if CLS and int(CLS) and CafyLog.registration_id:
             self.update_cls_testcase(test_case)
         if item == CafyLog.first_test and self.reg_dict:
-            reg_id = self.reg_dict['reg_id']
-            debug_server = CafyLog.debug_server
-            self.initiate_analyzer(reg_id, test_case, debug_server)
+            self.initiate_analyzer(test_case)
 
     def pytest_runtest_teardown(self, item, nextitem):
         if nextitem is None:
@@ -1057,17 +1051,13 @@ class EmailReport(object):
 
     def post_testcase_status(self, reg_id, test_case, debug_server):
         analyzer_status = False
-        headers = {'content-type': 'application/json'}
-        params = {"test_case": test_case,
-                  "reg_id": reg_id,
-                  "debug_server_name": debug_server}
-        analyzer_status = self.check_analyzer_status(params, headers)
+        analyzer_status = self.check_analyzer_status(testcase=test_case)
         if not analyzer_status:
             self.log.info("Analyzer still working, Continuing Test case")
         return analyzer_status
 
-    def check_analyzer_status(self, params, headers):
-        result = register_object.analyzer_status(params=params,headers=headers)
+    def check_analyzer_status(self, testcase):
+        result = register_object.analyzer_status(testcase=testcase)
         self.log.info(f'result of analyzer {result}')
         return result
 

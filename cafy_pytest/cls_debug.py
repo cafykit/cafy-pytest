@@ -91,7 +91,6 @@ class DebugAdapter:
             self.logger = getLogger(__name__)
             log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             log_handler = logging.StreamHandler('stdout')
-            logging.StreamHandler
             log_handler.setFormatter(log_formatter)
             # log_handler.setLevel('debug')
             self.logger.addHandler(log_handler)
@@ -138,24 +137,27 @@ class DebugAdapter:
             self.logger.error(f'Error encountered in registeration process" : {err}')
             return {"status": None, "msg": f'{err}'}
     
-    def initiate_analyzer(self,params,headers):
+    def initiate_analyzer(self,testcase:str):
         """
         Initialize the analyzer per testcase.
         
         Args:
-            params (_type_): _description_
-            headers (_type_): _description_
+           testcase (str): testcase name 
 
         Returns:
-            _type_: _description_
+            boolean : True if analyzer is initiated. False, if error is encountered.
         """
         if not self.debug_server:
             self.logger.info("debug_server name not provided in topo file, Not calling analyzer status")
         else:
             url = f'http://{self.debug_server}:5001/initiate_analyzer/'
+            params = {"test_case": testcase,
+                  "reg_id": self.registeration_id,
+                  "debug_server_name": self.debug_server}
+            headers = {'content-type': 'application/json'}
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to initialize analyzer')
-                response = requests_retry(self.logger, url, 'POST', data=params, timeout=300)
+                response = requests_retry(self.logger, url, 'POST', data=params, headers=headers, timeout=300)
                 if response.status_code == 200:
                     self.logger.info("Analyzer initialized")
                     return True
@@ -167,23 +169,29 @@ class DebugAdapter:
                 self.logger.warning(f'Error {e}')
                 return False
 
-    def analyzer_status(self,params,headers):
-        """_summary_
+    def analyzer_status(self,testcase:str):
+        """
+        Get the analyzer status for particular testcase.
 
         Args:
-            params (_type_): _description_
-            headers (_type_): _description_
-
+        headers = {'content-type': 'application/json'}
+        params = {"test_case": test_case,
+                  "reg_id": reg_id,
+                  "debug_server_name": debug_server}
         Returns:
-            _type_: _description_
+            boolean : true for analyzer is working , false if the check fails.
         """
         if not self.debug_server:
             self.logger.info("debug_server name not provided in topo file, not calling analyzer status")
         else:
             url = f'http://{self.debug_server}:5001/end_test_case/'
+            params = {"test_case": testcase,
+                  "reg_id": self.registeration_id,
+                  "debug_server_name": self.debug_server}
+            headers = {'content-type': 'application/json'}
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to check analyzer status')
-                response = requests_retry(self.logger, url, 'GET', data=params, timeout=30, retry_count=2)
+                response = requests_retry(self.logger, url, 'GET', data=params, headers=headers, timeout=30, retry_count=2)
                 if response.status_code == 200:
                     return response.json()['analyzer_status']
                 else:
@@ -221,11 +229,13 @@ class DebugAdapter:
         """_summary_
 
         Args:
-            params (_type_): _description_
-            headers (_type_): _description_
+            params (dict) : dictionary of parameters sent to collector service.
+            headers (dict): {'content-type': 'application/json'} 
 
         Returns:
-            _type_: _description_
+            response or None
+
+        ##this code needs to improve. 
         """
         if self.debug_server is None:
             self.logger.info("debug_server name not provided in topo file")
@@ -265,11 +275,13 @@ class DebugAdapter:
         """_summary_
 
         Args:
-            params (_type_): _description_
-            headers (_type_): _description_
+            params (dict) : dictionary of parameters sent to Rootcause service.
+            headers (dict): {'content-type': 'application/json'} 
 
         Returns:
-            _type_: _description_
+           None or respone.
+        
+        # this code also needs to improve.
         """
         if self.debug_server is None:
             self.logger.info(f'debug_server name not provided in topo file')
@@ -289,11 +301,11 @@ class DebugAdapter:
                 self.logger.warning(f'Http call to root cause service url:{url} is not successful')
                 return None
 
-    def analyzer_log(self, work_dir):
+    def analyzer_log(self, work_dir:str):
         """_summary_
 
         Args:
-            work_dir (_type_): _description_
+            work_dir (string): _description_
         """
         params = {"reg_id": self.registeration_id,
                   "debug_server_name": self.debug_server}
@@ -314,13 +326,15 @@ class DebugAdapter:
             self.logger.warning(f'Error {e}')
             self.logger.info('No Analyzer log file receiver')
     
-    def collector_log(self, params, headers, work_dir):
+    def collector_log(self, params:dict, headers:dict, work_dir:str):
         """_summary_
 
         Args:
-            params (_type_): _description_
-            headers (_type_): _description_
-            work_dir (_type_): _description_
+            params (dict) = {"reg_id": registeration id,
+                      "topo_file": topo file,
+                      "input_file": debug file}
+            headers (dict) = {'content-type': 'application/json'}
+            work_dir (str): _description_
         """
         try:
             url = f'http://{self.debug_server}:5001/uploadcollectorlogfile/'
@@ -374,7 +388,7 @@ class ClsAdapter:
         '''
         update cls with test case change update
         :param testcase:
-        :return:
+        :return: Boolean for able to succeed to inform CLS for testcase change.
         '''
         url = f'{self.cls_host}/api/collector/{self.reg_id}/case-update'
         try:
