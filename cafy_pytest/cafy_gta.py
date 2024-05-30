@@ -16,7 +16,7 @@ class TimeCollectorPlugin:
         self.total_sleep_time = 0
         self.total_set_command_time = 0
         self.total_get_command_time = 0
-        self.command_list = ['set_command','get_command','sleep_time']
+        self.command_list = ['set_command','get_command','sleep']
 
     def update_granular_time_testcase_dict(self, current_test, event, method_name, elapsed_time, feature_type):
         """
@@ -95,7 +95,7 @@ class TimeCollectorPlugin:
                 elapsed_time_microseconds = elapsed_time_seconds * 1000000
                 elapsed_time = '%.2f' % (elapsed_time_microseconds)
                 feature_type = self.get_method_type(caller_method)
-                self.update_granular_time_testcase_dict(current_test, "sleep_time", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time, feature_type)
+                self.update_granular_time_testcase_dict(current_test, "sleep", ".".join([caller_class.__name__, caller_method.__name__,"time.sleep"]), elapsed_time, feature_type)
 
     def patch_set_or_get_methods_for_test_instance(self, item):
         """
@@ -196,7 +196,7 @@ class TimeCollectorPlugin:
                 total_sum = sum(sublist[0] for sublist in timings_list)
                 length = len(timings_list)
                 feature_type = timings_list[0][1]
-                if event == 'sleep_time':
+                if event == 'sleep':
                     self.total_sleep_time = self.total_sleep_time + total_sum
                 elif event == 'set_command':
                     self.total_set_command_time = self.total_set_command_time + total_sum
@@ -215,10 +215,10 @@ class TimeCollectorPlugin:
         time_report = dict()
         for test_case, events in self.granular_time_testcase_dict.items():
             time_report[test_case] = dict()
-            if 'sleep_time' in events:
-                time_report[test_case]['sleep_time'] = self.get_time_data(events["sleep_time"],'sleep_time')
+            if 'sleep' in events:
+                time_report[test_case]['sleep'] = self.get_time_data(events["sleep"],'sleep')
             else:
-                time_report[test_case]['sleep_time'] =  dict()
+                time_report[test_case]['sleep'] =  dict()
             if 'set_command' in events:
                 time_report[test_case]['set_command'] = self.get_time_data(events["set_command"],'set_command')
             else:

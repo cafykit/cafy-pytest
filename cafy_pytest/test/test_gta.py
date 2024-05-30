@@ -19,7 +19,7 @@ class TestTimeCollectorPlugin:
         Test the update_granular_time_testcase_dict method.
         """
         current_test = "test_case_1"
-        event = "sleep_time"
+        event = "sleep"
         method_name = "TestClass.sleep"
         elapsed_time = "1.23"
         feature_type  = "non-infra"
@@ -62,7 +62,7 @@ class TestTimeCollectorPlugin:
         plugin.original_sleep.assert_called_once_with(duration)
 
         # Check if the granular time is updated correctly
-        assert plugin.granular_time_testcase_dict["test_case_1"]["sleep_time"]["TestTimeCollectorPlugin.test_measure_sleep_time.time.sleep"][0] == [float(1500000.0), 'infra']
+        assert plugin.granular_time_testcase_dict["test_case_1"]["sleep"]["TestTimeCollectorPlugin.test_measure_sleep_time.time.sleep"][0] == [float(1500000.0), 'infra']
 
     def test_update_CafyLog_gta_dict(self, plugin):
         """
@@ -87,7 +87,7 @@ class TestTimeCollectorPlugin:
         Test the get_time_data method.
         """
         data = {"method1": [[1.23,"infra"]], "method2": [[3.45,"non-infra"]]}
-        event = "sleep_time"
+        event = "sleep"
 
         result = plugin.get_time_data(data, event)
 
@@ -103,7 +103,7 @@ class TestTimeCollectorPlugin:
         """
         plugin.granular_time_testcase_dict = {
             "test_case_1": {
-                "sleep_time": {"method1": [[1.23,"infra"]]},
+                "sleep": {"method1": [[1.23,"infra"]]},
                 "set_command": {"method2": [[2.34,"non-infra"]]},
                 "get_command": {"method3": [[3.45,"infra"]]}
             }
@@ -112,9 +112,9 @@ class TestTimeCollectorPlugin:
         result = plugin.collect_granular_time_accouting_report()
         occurence = 1
         assert "test_case_1" in result
-        assert result["test_case_1"]["sleep_time"]["method1"][0] == '1.23'
-        assert result["test_case_1"]["sleep_time"]["method1"][1] == occurence
-        assert result["test_case_1"]["sleep_time"]["method1"][2] == 'infra'
+        assert result["test_case_1"]["sleep"]["method1"][0] == '1.23'
+        assert result["test_case_1"]["sleep"]["method1"][1] == occurence
+        assert result["test_case_1"]["sleep"]["method1"][2] == 'infra'
         assert result["test_case_1"]["set_command"]["method2"][0] == '2.34'
         assert result["test_case_1"]["set_command"]["method2"][1] == occurence
         assert result["test_case_1"]["set_command"]["method2"][2] == 'non-infra'
