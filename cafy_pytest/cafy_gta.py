@@ -246,7 +246,9 @@ class TimeCollectorPlugin:
             URL = CafyGTA_Configs.get_gta_url()
             API_KEY = CafyGTA_Configs.get_api_key()
             data = dict()
-            data['run_id'] = run_id
+            if run_id == 'local_run':
+                return
+            data['run_id'] = int(run_id)
             data['gta'] = time_report
             data_json = json.dumps(data)
             headers = {'Content-Type': 'application/json',
