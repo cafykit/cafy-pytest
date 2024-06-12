@@ -55,10 +55,16 @@ collection_setup = Config()
 #Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
 #if all are set, CAFYAP_REPO takes precedence
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
-CLS = os.environ.get("CLS", None)
+
+## Environment variable is a string always. This code needs to be imrpoved to string as "true/false"
+CLS = int(os.environ.get("CLS", 0))
 cls_host = os.environ.get("CLS_HOST", None)
 LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
+if not (LOGSTASH_PORT or LOGSTASH_SERVER) and CLS ==1 :
+    CLS = 0
+    
+
 
 
 
