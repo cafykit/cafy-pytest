@@ -43,25 +43,31 @@ def requests_retry(logger, url, method, data=None, files=None,  headers=None, ti
             if timeout:
                 kwargs['timeout']  = timeout
             response = s.request(method=method, url=url, **kwargs)
+
+
         if response.status_code != 200:
-            logger.warning(f'HTTP Status Code: {response.status_code} {response.text}')
+            logger.warning("HTTP Status Code: {0}\n{1}"
+                              .format(response.status_code, response.text))
     except requests.exceptions.RetryError as e:
         # 5XX Database/SQLAlchemy Error handling
         logger.warning(repr(e))
         logger.warning(traceback.format_exc())
-        logger.warning(f'URL and method: {url} {method}')
-        logger.warning(f'kwargs={kwargs}')
+        logger.warning("URL and method: {0}\n{1}"
+                       .format(url, method))
+        logger.warning("kwargs={}".format(kwargs))
     except requests.exceptions.ConnectionError as e:
         # Server Connection Error
         logger.warning(repr(e))
         logger.warning(traceback.format_exc())
-        logger.warning(f'URL and method: {url} {method}')
-        logger.warning(f'kwargs={kwargs}')
+        logger.warning("URL and method: {0}\n{1}"
+                       .format(url, method))
+        logger.warning("kwargs={}".format(kwargs))
     except Exception as e:
         logger.warning(repr(e))
         logger.warning(traceback.format_exc())
-        logger.warning(f'URL and method: {url} {method}')
-        logger.warning(f'kwargs={kwargs}')
+        logger.warning("URL and method: {0}\n{1}"
+                       .format(url, method))
+        logger.warning("kwargs={}".format(kwargs))
     return response
 
 
