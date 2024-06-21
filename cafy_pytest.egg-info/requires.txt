@@ -1,2 +1,9 @@
-pytest>=2.3
+allure-pytest
 jinja2
+pytest>=2.3
+PyYAML
+remote-pdb
+requests
+tabulate
+urllib3
+validators
