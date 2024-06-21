@@ -1,11 +1,7 @@
-Metadata-Version: 1.1
+Metadata-Version: 2.1
 Name: cafy-pytest
 Version: 0.1.0
 Summary: Pytest Cafy Plugin
-Home-page: https://github.com/kuamrend/cafy-pytest
+Home-page: https://github.com/cafykit/cafy-pytest
 Author: Cafy
-Author-email: cafy-support@cisco.com
-License: GPLv2
-Description: UNKNOWN
-Platform: UNKNOWN
 Classifier: Framework :: Pytest

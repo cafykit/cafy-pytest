@@ -557,8 +557,6 @@ def pytest_configure(config):
         
         reg_dict = {}
         if call_registeration and CafyLog.debug_server:
-            log.info(type(test_input_file))
-            log.info(type(topo_file_path))
             kwargs = {
                     'reg_id': reg_id,
                     'debug_file': test_input_file_path,
