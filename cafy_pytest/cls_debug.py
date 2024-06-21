@@ -5,6 +5,7 @@ from urllib3 import Retry, request
 import json
 import time
 import os
+import sys
 from debug import DebugLibrary
 
 
@@ -96,7 +97,7 @@ class DebugAdapter:
             from logging import getLogger
             self.logger = getLogger(__name__)
             log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            log_handler = logging.StreamHandler('stdout')
+            log_handler = logging.StreamHandler(stream=sys.stdout)
             log_handler.setFormatter(log_formatter)
             # log_handler.setLevel('debug')
             self.logger.addHandler(log_handler)
@@ -109,7 +110,7 @@ class DebugAdapter:
         Returns:
             dict of status and error/success string.
         """
-        self.logger.info(self.debug_server,self.test_name, self.debug , self.registeration_id)
+        self.logger.info(f'{self.debug_server},{self.test_name}, {self.debug},{self.registeration_id}')
         if not self.debug:
             return {"status": None, "msg": "debug is not enabled"}
         if not self.test_name:
@@ -120,6 +121,15 @@ class DebugAdapter:
             "debug_server_name" : self.debug_server,
             "reg_id" : self.registeration_id
         }
+        # Following code is needed for 3.11 and some changes in registeration.
+        # with open(self.topo_file, 'rb') as f:
+        #     topo = f.read()
+        # with open(self.debug_file, 'rb') as f:
+        #     debug_file = f.read()
+        # files = {
+        #     'testbed_file': topo,
+        #     'input_file' : debug_file
+        # }
         files = {
             'testbed_file': open(self.topo_file, 'rb'),
             'input_file' : open(self.debug_file, 'rb')
@@ -386,7 +396,7 @@ class ClsAdapter:
             from logging import getLogger
             self.logger = getLogger(__name__)
             log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            log_handler = logging.StreamHandler('stdout')
+            log_handler = logging.StreamHandler(stream=sys.stdout)
             log_handler.setFormatter(log_formatter)
             self.logger.addHandler(log_handler)
 

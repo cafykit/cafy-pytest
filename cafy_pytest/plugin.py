@@ -443,6 +443,8 @@ def pytest_configure(config):
                     CafyLog.debug_server = debug_server
                     log = CafyLog("cafy")
                     log.info("CafyLog.debug_server : %s" %CafyLog.debug_server )
+                else:
+                    CafyLog.debug_enable = None
                 ### till here/.
             else:
                 #TODO: Address how u want to save topo file to archive if it is an url
@@ -551,21 +553,23 @@ def pytest_configure(config):
         if CLS:
             from .cls_debug import ClsAdapter
             global cls_object
-            cls_object = ClsAdapter(cls_host=cls_host,logger=None,reg_id=reg_id)
+            cls_object = ClsAdapter(cls_host=cls_host,logger=log,reg_id=reg_id)
         
         reg_dict = {}
         if call_registeration and CafyLog.debug_server:
+            log.info(type(test_input_file))
+            log.info(type(topo_file_path))
             kwargs = {
                     'reg_id': reg_id,
-                    'debug_file': CafyLog.test_input_file,
-                    'topo_file' : CafyLog.topology_file,
+                    'debug_file': test_input_file_path,
+                    'topo_file' : topo_file_path,
                     'test_name' : script_name,
                     'debug_server' : CafyLog.debug_server
             }
             ## Only needed in case if debug is enabled.
             from .cls_debug import DebugAdapter
             global register_object
-            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=None, **kwargs)
+            register_object = DebugAdapter(debug=cafykit_debug_enable,cls=CLS,logger=log, **kwargs)
             response = register_object.register_test()
             if response['status'] != "OK":
                 log.info(f'register response",{response["msg"]}')
@@ -597,6 +601,8 @@ def pytest_configure(config):
         #reporter.write_line("all.log location: %s" %CafyLog.work_dir)
         reporter.write_line("Virtual Env: %s" %(os.getenv("VIRTUAL_ENV")))
         reporter.write_line("Complete Log Location: %s/all.log" %CafyLog.work_dir)
+        reporter.write_line("CLS Enabled: %s" % CLS)
+        reporter.write_line("Debug Engine Enabled: %s" % cafykit_debug_enable)
         reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
 
 def pytest_unconfigure(config):
