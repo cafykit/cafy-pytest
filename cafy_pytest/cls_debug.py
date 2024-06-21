@@ -121,7 +121,14 @@ class DebugAdapter:
             "debug_server_name" : self.debug_server,
             "reg_id" : self.registeration_id
         }
-        # Following code is needed for 3.11 and some changes in registeration.
+        # Following code is needed for 3.11 and some changes in registeration. This is the below erorr.
+        # plugin.py:569: ResourceWarning: unclosed file <_io.BufferedReader name='/auto/cafy-sjc/cafy_log/cafy3-run-992104/1923/PP_SFSIM_Fixed_virtual_topo.json'>
+        #   response = register_object.register_test()
+        # ResourceWarning: Enable tracemalloc to get the object allocation traceback
+        # plugin.py:569: ResourceWarning: unclosed file <_io.BufferedReader name='/auto/cafy-sjc/cafy_log/cafy3-run-992104/1923/992104_input_file.json'>
+        #   response = register_object.register_test()
+        #
+        #
         # with open(self.topo_file, 'rb') as f:
         #     topo = f.read()
         # with open(self.debug_file, 'rb') as f:
