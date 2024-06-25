@@ -6,7 +6,7 @@ import functools
 import inspect
 import requests
 import json
-import re
+from utils.cafybase import CafyBase
 from .cafygta_config import CafyGTA_Configs
 
 class TimeCollectorPlugin:
@@ -127,7 +127,7 @@ class TimeCollectorPlugin:
                             # else  if method is infra then applying decorator for collecting time on  get and set methods of infra methods
                             file_path = original_method.__code__.co_filename
                             if 'lib/feature_lib' in file_path or 'lib/hw' in file_path:
-                                if re.search(r'/[^/]*_base\.py$', file_path):
+                                if issubclass(class_name, CafyBase):
                                     setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
                             elif 'lib' in file_path:
                                 setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
