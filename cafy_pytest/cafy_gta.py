@@ -127,7 +127,7 @@ class TimeCollectorPlugin:
                             # else  if method is infra then applying decorator for collecting time on  get and set methods of infra methods
                             file_path = original_method.__code__.co_filename
                             if 'lib/feature_lib' in file_path or 'lib/hw' in file_path:
-                                if issubclass(class_name, CafyBase):
+                                if issubclass(class_obj, CafyBase):
                                     setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
                             elif 'lib' in file_path:
                                 setattr(class_obj, method_name, self.measure_time_for_set_or_get_methods(original_method,class_name))
