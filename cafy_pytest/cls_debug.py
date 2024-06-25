@@ -218,7 +218,7 @@ class DebugAdapter:
                 if response.status_code == 200:
                     return response.json()['analyzer_status']
                 else:
-                    self.logger.info(f'Analyzer status check failed {response.staus_code}')
+                    self.logger.info(f'Analyzer status check failed {response.status_code}')
                     return None
             except Exception as e:
                 self.logger.info(f'Http call to registration service url:{url} is not successful')
