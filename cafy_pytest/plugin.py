@@ -528,6 +528,7 @@ def pytest_configure(config):
         if CLS and not cafykit_debug_enable :
             call_registeration = False
             reg_id = os.environ.get("REG_ID", None)
+            CafyLog.registration_id = reg_id
             CafyLog.logstash_server = LOGSTASH_SERVER
             CafyLog.logstash_port = int(LOGSTASH_PORT)
             #set the debug_server to be NONE.
