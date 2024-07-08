@@ -2,6 +2,10 @@ setup.py
 cafy_pytest/__init__.py
 cafy_pytest/__version__.py
 cafy_pytest/cafy.py
+cafy_pytest/cafy_pdb.py
+cafy_pytest/cafypdb_config.py
+cafy_pytest/cls_debug.py
+cafy_pytest/common.py
 cafy_pytest/plugin.py
 cafy_pytest.egg-info/PKG-INFO
 cafy_pytest.egg-info/SOURCES.txt
