@@ -370,6 +370,7 @@ def pytest_configure(config):
     CafyLog.giso_dir = config.option.giso_dir
     script_list = config.option.file_or_dir
     collection_list = []
+    log = None
     for item in config.option.collection:
         collection_list.extend(item.split(","))
     cafypdb = config.option.cafypdb
