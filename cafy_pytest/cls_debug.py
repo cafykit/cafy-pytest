@@ -428,7 +428,7 @@ class ClsAdapter:
                 return False
         except Exception as e:
             self.logger.warning(f'Http call to cls service url:{url} is not successful')
-            self.logger.warning("Error {e}".format(e))
+            self.logger.warning("Error {}".format(e))
             return False
 
 
