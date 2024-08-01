@@ -180,7 +180,7 @@ class DebugAdapter:
             headers = {'content-type': 'application/json'}
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to initialize analyzer')
-                response = requests_retry(self.logger, url, 'POST', data=params, headers=headers, timeout=300)
+                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=300)
                 if response.status_code == 200:
                     self.logger.info("Analyzer initialized")
                     return True
@@ -214,7 +214,7 @@ class DebugAdapter:
             headers = {'content-type': 'application/json'}
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to check analyzer status')
-                response = requests_retry(self.logger, url, 'GET', data=params, headers=headers, timeout=30, retry_count=2)
+                response = requests_retry(self.logger, url, 'GET', json=params, headers=headers, timeout=30, retry_count=2)
                 if response.status_code == 200:
                     return response.json()['analyzer_status']
                 else:
