@@ -110,7 +110,6 @@ class DebugAdapter:
         Returns:
             dict of status and error/success string.
         """
-        self.logger.info(f'{self.debug_server},{self.test_name}, {self.debug},{self.registeration_id}')
         if not self.debug:
             return {"status": None, "msg": "debug is not enabled"}
         if not self.test_name:
@@ -150,8 +149,8 @@ class DebugAdapter:
                 #reg_dict will contain testbed, input, debug files and reg_id
                 reg_dict = response.text # This reg_dict is a string of dict
                 reg_dict = json.loads(reg_dict)
-                registration_id = reg_dict['reg_id']
-                self.logger.info("Registration ID: %s" %registration_id)
+                self.registeration_id = reg_dict['reg_id']
+                self.logger.info(f'Registration ID in debug case : {self.registeration_id}')
                 return {"status": "OK", "data" : reg_dict}
             else:
                 self.logger.info("Registration server returned code %d " % response.status_code)
