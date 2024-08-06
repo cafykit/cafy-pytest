@@ -110,7 +110,6 @@ class DebugAdapter:
         Returns:
             dict of status and error/success string.
         """
-        self.logger.info(f'{self.debug_server},{self.test_name}, {self.debug},{self.registeration_id}')
         if not self.debug:
             return {"status": None, "msg": "debug is not enabled"}
         if not self.test_name:
@@ -150,8 +149,8 @@ class DebugAdapter:
                 #reg_dict will contain testbed, input, debug files and reg_id
                 reg_dict = response.text # This reg_dict is a string of dict
                 reg_dict = json.loads(reg_dict)
-                registration_id = reg_dict['reg_id']
-                self.logger.info("Registration ID: %s" %registration_id)
+                self.registeration_id = reg_dict['reg_id']
+                self.logger.info(f'Registration ID in debug case : {self.registeration_id}')
                 return {"status": "OK", "data" : reg_dict}
             else:
                 self.logger.info("Registration server returned code %d " % response.status_code)
@@ -180,7 +179,7 @@ class DebugAdapter:
             headers = {'content-type': 'application/json'}
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to initialize analyzer')
-                response = requests_retry(self.logger, url, 'POST', data=params, headers=headers, timeout=300)
+                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=300)
                 if response.status_code == 200:
                     self.logger.info("Analyzer initialized")
                     return True
@@ -214,7 +213,7 @@ class DebugAdapter:
             headers = {'content-type': 'application/json'}
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to check analyzer status')
-                response = requests_retry(self.logger, url, 'GET', data=params, headers=headers, timeout=30, retry_count=2)
+                response = requests_retry(self.logger, url, 'GET', json=params, headers=headers, timeout=30, retry_count=2)
                 if response.status_code == 200:
                     return response.json()['analyzer_status']
                 else:
