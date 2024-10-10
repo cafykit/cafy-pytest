@@ -236,6 +236,10 @@ def pytest_addoption(parser):
     group.addoption('--cafygta', dest='cafygta', action='store_true',
                     help='Variable to enable cafy gta, default is False')
 
+    group = parser.getgroup('Generate all.log.html - Enable/Disable')
+    group.addoption('--all-log-html', dest='all_log_html', action='store_true',
+                    help='Variable to enable all.log.html generation, default is False')
+
 
 def is_valid_param(arg, file_type=None):
     if not arg:
@@ -369,6 +373,7 @@ def pytest_configure(config):
     CafyLog.mongomode=config.option.mongo_mode
     CafyLog.giso_dir = config.option.giso_dir
     script_list = config.option.file_or_dir
+    CafyLog.all_log_html = config.option.all_log_html
     collection_list = []
     log = None
     for item in config.option.collection:
@@ -1972,7 +1977,8 @@ class EmailReport(object):
     def pytest_terminal_summary(self, terminalreporter):
         '''this hook is the execution point of email plugin'''
         #self._generate_email_report(terminalreporter)
-        self._generate_all_log_html()
+        if CafyLog.all_log_html: 
+            self._generate_all_log_html()
         if self.CAFY_REPO:
             option = terminalreporter.config.option
             # self._create_archive(option)
