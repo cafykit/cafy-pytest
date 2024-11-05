@@ -246,7 +246,7 @@ class TimeCollectorPlugin:
             self.total_get_command_time = 0
         return time_report
     
-    def add_gta_data_into_db(self, time_report,run_id='local_run'):
+    def add_gta_data_into_db(self, time_report,aggregated_gta_data,run_id='local_run'):
         '''
         add_gta_data_into_db
         :param time_report: gta report json data
@@ -259,6 +259,7 @@ class TimeCollectorPlugin:
                 return
             data['run_id'] = int(run_id)
             data['gta'] = time_report
+            data['aggregated_gta'] = aggregated_gta_data
             data_json = json.dumps(data)
             headers = {'Content-Type': 'application/json',
                        'Authorization': 'Bearer {}'.format(API_KEY)}
@@ -294,6 +295,24 @@ class TimeCollectorPlugin:
                         ]
         return transformed_gta
 
+    def get_aggregated_gta_data(self,gta_data,run_time):
+        aggregated_data = {
+                'total_sleep_time': 0,
+                'total_set_command_time': 0,
+                'total_get_command_time': 0,
+                'total_event_time': 0,
+                'total_run_time': run_time
+                }
+        for test,value in gta_data.items():
+            sleep_time = gta_data[test]['totals']['total_sleep_time']
+            set_command_time = gta_data[test]['totals']['total_set_command_time']
+            get_command_time = gta_data[test]['totals']['total_get_command_time']
+            aggregated_data['total_sleep_time'] = aggregated_data['total_sleep_time'] + sleep_time
+            aggregated_data['total_set_command_time'] = aggregated_data['total_set_command_time'] + set_command_time
+            aggregated_data['total_get_command_time'] = aggregated_data['total_get_command_time'] + get_command_time
+            aggregated_data['total_event_time'] = aggregated_data['total_event_time'] + sleep_time + get_command_time + set_command_time
+        return aggregated_data
+
     def pytest_terminal_summary(self, terminalreporter):
         '''
         Method pytest_terminal_summary : terminal reporting 
@@ -301,10 +320,16 @@ class TimeCollectorPlugin:
         '''
         time_report = self.collect_granular_time_accouting_report()
         gta_data = self.get_tranformed_gta_data(time_report)
+        run_start_time =  float(os.environ.get('START_TIME'))
+        run_end_time = time.perf_counter()
+        elapsed_run_time_seconds = run_end_time - run_start_time
+        elapsed_run_time_microseconds = elapsed_run_time_seconds * 1000000
+        run_time = '%.2f' % (elapsed_run_time_microseconds)
+        aggregated_data = self.get_aggregated_gta_data(gta_data,run_time)
         path=CafyLog.work_dir
         file_name='cafy_gta.json'
         with open(os.path.join(path, file_name), 'w') as fp:
             json.dump(gta_data,fp)
         #Update gta data into mongo db
         run_id = os.environ.get("CAFY_RUN_ID", 'local_run')
-        self.add_gta_data_into_db(gta_data,run_id)
+        self.add_gta_data_into_db(gta_data,aggregated_data,run_id)
