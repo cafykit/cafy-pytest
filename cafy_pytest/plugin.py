@@ -812,6 +812,7 @@ class EmailReport(object):
     # CAFY_REPO will be used for all cafy related logics
     START = datetime.now()
     START_TIME = time.asctime(time.localtime(START.timestamp()))
+    os.environ['START_TIME'] = str(time.perf_counter())
 
     def __init__(self, email_addr_list, email_from, email_from_passwd,
                  smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict, collection_list, cafypdb):
