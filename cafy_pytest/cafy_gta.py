@@ -324,7 +324,7 @@ class TimeCollectorPlugin:
         run_end_time = time.perf_counter()
         elapsed_run_time_seconds = run_end_time - run_start_time
         elapsed_run_time_microseconds = elapsed_run_time_seconds * 1000000
-        run_time = '%.2f' % (elapsed_run_time_microseconds)
+        run_time = float('%.2f' % (elapsed_run_time_microseconds))
         aggregated_data = self.get_aggregated_gta_data(gta_data,run_time)
         path=CafyLog.work_dir
         file_name='cafy_gta.json'
