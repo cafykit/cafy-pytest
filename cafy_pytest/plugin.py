@@ -1118,10 +1118,12 @@ class EmailReport(object):
             except:
                 exc_info = sys.exc_info()
                 einfo = _pytest._code.code.ExceptionInfo.from_current()
-                call.excinfo = einfo
+                if hasattr(call, 'einfo'):
+                    call.excinfo = einfo
                 repr = einfo.getrepr(style="line")
                 result = report.get_result()
-                report.exc_info = exc_info
+                if hasattr(report, 'exc_info'):
+                    report.exc_info = exc_info
                 result.outcome = "failed"
                 result.longrepr = repr
                 report.force_result(result)
