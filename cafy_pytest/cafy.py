@@ -9,7 +9,8 @@ from allure_commons._allure import StepContext as AllureStepContext
 from utils.cafyexception import CafyException
 from logger.cafylog import CafyLog
 log = CafyLog("cafy_pytest_step")
-
+import traceback
+import allure
 
 class Cafy:
 
@@ -61,10 +62,12 @@ class Cafy:
             super().__exit__(exc_type, exc_val, exc_tb)
             if not self.blocking:
                 if exc_type:
+                    full_traceback = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
                     print("Step failed here: {exc_type}:{exc_val}".format(
                         exc_val=exc_val,
                         exc_type=exc_type,
                         exc_tb=exc_tb))
+                    allure.attach(full_traceback, name=f"Exception in {self.title}", attachment_type=allure.attachment_type.TEXT)
                     Cafy.RunInfo.active_exceptions.append(exc_val)
             log.banner(f" Finish of step: {self.title}")
             return not self.blocking
