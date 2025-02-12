@@ -385,7 +385,7 @@ def pytest_configure(config):
             script_path = script_path.split('::')[0]
         CafyLog.script_path = os.path.abspath(script_path)
 
-        script_name = os.path.basename(script_list[0]).replace('.py', '')
+        script_name = os.path.basename(script_path.rstrip("/")).replace('.py', '')
         #If someone gives the script in the format
         #moduleName::className::testcaseName to execute only a specific testcase
         if '::' in script_name:
@@ -395,28 +395,22 @@ def pytest_configure(config):
         pid = os.getpid()
         work_dir_name = "%s_%s_p%s" % (script_name,_current_time, pid )
 
-        if not config.option.reportdir:
-            #If workdir option is set, execute the if block and if not given,
-            #execute the else block where the workdir will be set to
-            #GIT_REPO/work/archive
-            if config.option.workdir:
-                if os.path.exists(config.option.workdir):
-                    custom_workdir = config.option.workdir
-                    work_dir = custom_workdir
-                else:
-                    print('workdir path not found: {}'.format(config.option.workdir))
-                    pytest.exit('workdir path not found')
-            else:
-                if CAFY_REPO:
-                    work_dir = os.path.join(CAFY_REPO, 'work', "archive", work_dir_name)
-        else:
+        if config.option.reportdir:
             if os.path.exists(config.option.reportdir):
                 work_dir = os.path.join(config.option.reportdir, work_dir_name)
             else:
                 print('reportdir path not found: {}'.format(config.option.reportdir))
                 pytest.exit('reportdir path not found')
+        elif config.option.workdir:
+            if os.path.exists(config.option.workdir):
+                custom_workdir = config.option.workdir
+                work_dir = custom_workdir
+            else:
+                print('workdir path not found: {}'.format(config.option.workdir))
+                pytest.exit('workdir path not found')
+        else:
+            work_dir = os.path.join(os.path.abspath(config.option.rootdir), work_dir_name)
 
-        CafyLog.work_dir = work_dir
         #Set CafyLog.work_dir option for all.log
         CafyLog.work_dir = work_dir
         _setup_env()
@@ -781,13 +775,9 @@ def get_datentime():
 
 def _setup_archive_env():
     '''setup archive env'''
-    #print ('setting up env: ARCHIVE_DIR ')
     # create archive folder with 777 permision
     if not os.path.exists(CafyLog.work_dir):
         os.makedirs(CafyLog.work_dir, 0o777)
-    else:
-        pass
-        #print ('{} is already created'.format(CafyLog.work_dir))
     # setup environment variable for cafy user to add files in archive
     os.environ['ARCHIVE_DIR'] = CafyLog.work_dir
 
