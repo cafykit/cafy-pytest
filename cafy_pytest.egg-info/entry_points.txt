@@ -1,2 +1,0 @@
-[pytest11]
-cafy_pytest = cafy_pytest.plugin
