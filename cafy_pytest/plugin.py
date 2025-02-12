@@ -409,7 +409,7 @@ def pytest_configure(config):
                 print('workdir path not found: {}'.format(config.option.workdir))
                 pytest.exit('workdir path not found')
         else:
-            work_dir = work_dir = os.path.join(os.getcwd(), work_dir_name)
+            work_dir = os.path.join(os.path.abspath(config.option.rootdir), work_dir_name)
 
         #Set CafyLog.work_dir option for all.log
         CafyLog.work_dir = work_dir
