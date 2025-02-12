@@ -385,7 +385,7 @@ def pytest_configure(config):
             script_path = script_path.split('::')[0]
         CafyLog.script_path = os.path.abspath(script_path)
 
-        script_name = os.path.basename(script_list[0]).replace('.py', '')
+        script_name = os.path.basename(script_path.rstrip("/")).replace('.py', '')
         #If someone gives the script in the format
         #moduleName::className::testcaseName to execute only a specific testcase
         if '::' in script_name:
