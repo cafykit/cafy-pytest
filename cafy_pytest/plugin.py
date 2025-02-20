@@ -4,6 +4,7 @@ This plugin will cover all the cafy related plugin like email report
 
 import getpass
 import html
+import importlib.resources
 import inspect
 import json
 import os
@@ -88,10 +89,6 @@ if CAFY_REPO is None:
                 pytest.exit(msg)
 else:
     os.environ['CAFY_REPO'] = CAFY_REPO
-
-if not CAFY_REPO:
-    msg = "Please set the environment variable GIT_REPO or CAFYKIT_HOME or CAFYAP_REPO "
-    pytest.exit(msg)
 
 
 cafy_args = os.environ.get('CAFY_ARGS')
@@ -270,15 +267,23 @@ def is_valid_cafyarg(arg):
 def load_config_file(filename=None):
     _filename = filename
     if not _filename:
-        git_repo = os.getenv("GIT_REPO", None)
-    if git_repo:
         try:
-            _filename = os.path.join(
-                git_repo, "work", "pytest_cafy_config.yaml")
+            with importlib.resources.open_text(
+                "cafykit", "pytest_cafy_config.yaml"
+            ) as f:
+                return yaml.safe_load(f)
+        except Exception:
+            git_repo = os.getenv("GIT_REPO", None)
+            if git_repo:
+                _filename = os.path.join(git_repo, "work", "pytest_cafy_config.yaml")
+    if _filename:
+        try:
             with open(_filename, 'r') as stream:
-                return (yaml.safe_load(stream))
+                return yaml.safe_load(stream)
         except:
             return {}
+    else:
+        return {}
 
 def is_jsonable(val):
     try:
@@ -847,7 +852,7 @@ class EmailReport(object):
         # with single test script
         _current_time = get_datentime()
         email_report = 'email_report.html'
-        if self.CAFY_REPO:
+        if CafyLog.work_dir:
             #self.archive_name = CafyLog.work_dir + '.zip'
             #self.archive = os.path.join(CafyLog.work_dir, self.archive_name)
             self.archive = CafyLog.work_dir
@@ -2257,7 +2262,7 @@ class CafyReportData(object):
                 html_link = os.path.join(
                         os.path.sep, CafyLog.web_host, file_link)
             else:
-                if path.startswith(('/auto', '/ws')):
+                if not path or path.startswith(('/auto', '/ws')):
                     html_link = os.path.join(
                             os.path.sep, 'http://allure.cisco.com', file_link)
                 else:
