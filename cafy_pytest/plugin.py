@@ -4,6 +4,7 @@ This plugin will cover all the cafy related plugin like email report
 
 import getpass
 import html
+import importlib.resources
 import inspect
 import json
 import os
@@ -266,9 +267,15 @@ def is_valid_cafyarg(arg):
 def load_config_file(filename=None):
     _filename = filename
     if not _filename:
-        git_repo = os.getenv("GIT_REPO", None)
-        if git_repo:
-            _filename = os.path.join(git_repo, "work", "pytest_cafy_config.yaml")
+        try:
+            with importlib.resources.open_text(
+                "cafykit", "pytest_cafy_config.yaml"
+            ) as f:
+                return yaml.safe_load(f)
+        except Exception:
+            git_repo = os.getenv("GIT_REPO", None)
+            if git_repo:
+                _filename = os.path.join(git_repo, "work", "pytest_cafy_config.yaml")
     if _filename:
         try:
             with open(_filename, 'r') as stream:
