@@ -266,10 +266,12 @@ def is_valid_cafyarg(arg):
 def load_config_file(filename=None):
     config = {}
     # If no file path given the check the following places (in order):
-    #  - {CAFY_REPO}/work/pytest_cafy_config.yaml (for backwards compatibility)
+    #  - $GIT_REPO/work/pytest_cafy_config.yaml (for backwards compatibility)
     #  - cafykit/pytest_cafy_config.yaml (in the cafykit package)
-    if not filename and CAFY_REPO:
-        legacy_repo_path = os.path.join(CAFY_REPO, "work", "pytest_cafy_config.yaml")
+    if not filename and "GIT_REPO" in os.environ:
+        legacy_repo_path = os.path.join(
+            os.environ["GIT_REPO"], "work", "pytest_cafy_config.yaml"
+        )
         if os.path.exists(legacy_repo_path):
             filename = legacy_repo_path
     if not filename:
@@ -416,8 +418,7 @@ def pytest_configure(config):
                 pytest.exit('reportdir path not found')
         elif config.option.workdir:
             if os.path.exists(config.option.workdir):
-                custom_workdir = config.option.workdir
-                work_dir = custom_workdir
+                work_dir = config.option.workdir
             else:
                 print('workdir path not found: {}'.format(config.option.workdir))
                 pytest.exit('workdir path not found')
