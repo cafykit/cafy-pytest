@@ -77,17 +77,18 @@ setattr(pytest,"allure",Cafy)
 #  - CAFYKIT_HOME
 #  - GIT_REPO
 #
-# The CAFY_REPO env var is then set (also for backwards compatibility).
+# The CAFY_REPO env var is set in the latter two cases (also for backwards
+# compatibility).
 
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
-if CAFY_REPO is None:
-    CAFY_REPO = os.environ.get("CAFYKIT_HOME", None)
-if CAFY_REPO is None:
-    CAFY_REPO = os.environ.get("GIT_REPO", None)
-if CAFY_REPO:
-    if not os.path.isdir(os.path.join(CAFY_REPO, 'lib')):
-        pytest.exit(f'Specified CAFY repo not found: {CAFY_REPO}')
-    os.environ['CAFY_REPO'] = CAFY_REPO
+if CAFY_REPO is None and "CAFYKIT_HOME" in os.environ:
+    CAFY_REPO = os.environ["CAFYKIT_HOME"]
+    os.environ["CAFY_REPO"] = CAFY_REPO
+if CAFY_REPO is None and "GIT_REPO" in os.environ:
+    CAFY_REPO = os.environ["GIT_REPO"]
+    os.environ["CAFY_REPO"] = CAFY_REPO
+    if not os.path.isdir(os.path.join(CAFY_REPO, 'work')):
+        pytest.exit(f'GIT_REPO has not been set to correct repo.')
 
 
 cafy_args = os.environ.get('CAFY_ARGS')
@@ -423,7 +424,7 @@ def pytest_configure(config):
                 print('workdir path not found: {}'.format(config.option.workdir))
                 pytest.exit('workdir path not found')
         elif CAFY_REPO:
-            work_dir = os.path.join(CAFY_REPO, work_dir_name)
+            work_dir = os.path.join(CAFY_REPO, "work", "archive", work_dir_name)
         else:
             work_dir = os.path.join(os.getcwd(), work_dir_name)
 
