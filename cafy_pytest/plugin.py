@@ -4,7 +4,6 @@ This plugin will cover all the cafy related plugin like email report
 
 import getpass
 import html
-import importlib.resources
 import inspect
 import json
 import os
@@ -54,9 +53,6 @@ from .cafypdb_config import CafyPdb_Configs
 
 
 collection_setup = Config()
-#Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
-#if all are set, CAFYAP_REPO takes precedence
-CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
 
 ## Environment variable is a string always. This code needs to be imrpoved to string as "true/false"
 CLS = int(os.environ.get("CLS", 0))
@@ -65,29 +61,32 @@ LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
 if not (LOGSTASH_PORT or LOGSTASH_SERVER) and CLS ==1 :
     CLS = 0
-    
-
-
 
 
 setattr(pytest,"allure",Cafy)
 
+
+# Check a few env vars to find the CAFY repo, if given.
+#
+# This is no longer a hard requirement, but checking the env vars is left here
+# so that backwards compatibility can be maintained for the case that the repo
+# is specified.
+#
+# The following env vars are checked (in this order):
+#  - CAFYAP_REPO
+#  - CAFYKIT_HOME
+#  - GIT_REPO
+#
+# The CAFY_REPO env var is then set (also for backwards compatibility).
+
+CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
 if CAFY_REPO is None:
-    #If CAFYAP_REPO is not set, check if GIT_REPO or CAFYKIT_HOME is set
-    #If both GIT_REPO and CAFYKIT_HOME are set, CAFYKIT_HOME takes precedence
     CAFY_REPO = os.environ.get("CAFYKIT_HOME", None)
-    if CAFY_REPO:
-        os.environ['CAFY_REPO'] = CAFY_REPO
-    else:
-        CAFY_REPO = os.environ.get("GIT_REPO", None)
-        if CAFY_REPO:
-            if os.path.exists(os.path.join(CAFY_REPO, 'work', 'pytest_cafy_config.yaml')):
-                # CAFY_REPO variable has been set to correct repo.
-                os.environ['CAFY_REPO'] = CAFY_REPO
-            else:
-                msg = 'GIT_REPO has not been set to correct repo.'
-                pytest.exit(msg)
-else:
+if CAFY_REPO is None:
+    CAFY_REPO = os.environ.get("GIT_REPO", None)
+if CAFY_REPO:
+    if not os.path.isdir(os.path.join(CAFY_REPO, 'lib')):
+        pytest.exit(f'Specified CAFY repo not found: {CAFY_REPO}')
     os.environ['CAFY_REPO'] = CAFY_REPO
 
 
@@ -265,25 +264,34 @@ def is_valid_cafyarg(arg):
 
 
 def load_config_file(filename=None):
-    _filename = filename
-    if not _filename:
+    config = {}
+    # If no file path given the check the following places (in order):
+    #  - {CAFY_REPO}/work/pytest_cafy_config.yaml (for backwards compatibility)
+    #  - cafykit/pytest_cafy_config.yaml (in the cafykit package)
+    if not filename and CAFY_REPO:
+        legacy_repo_path = os.path.join(CAFY_REPO, "work", "pytest_cafy_config.yaml")
+        if os.path.exists(legacy_repo_path):
+            filename = legacy_repo_path
+    if not filename:
         try:
-            with importlib.resources.open_text(
-                "cafykit", "pytest_cafy_config.yaml"
-            ) as f:
-                return yaml.safe_load(f)
-        except Exception:
-            git_repo = os.getenv("GIT_REPO", None)
-            if git_repo:
-                _filename = os.path.join(git_repo, "work", "pytest_cafy_config.yaml")
-    if _filename:
+            import cafykit
+        except ImportError:
+            pass
+        else:
+            cafykit_pkg_path = os.path.join(
+                os.path.dirname(cafykit.__file__), "pytest_cafy_config.yaml"
+            )
+            if os.path.exists(cafykit_pkg_path):
+                filename = cafykit_pkg_path
+
+    if filename:
         try:
-            with open(_filename, 'r') as stream:
-                return yaml.safe_load(stream)
-        except:
-            return {}
-    else:
-        return {}
+            with open(filename, 'r') as stream:
+                config = yaml.safe_load(stream)
+        except OSError:
+            print(f"WARNING: Could not read config file {filename}", file=sys.stderr)
+
+    return config
 
 def is_jsonable(val):
     try:
