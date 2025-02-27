@@ -421,6 +421,8 @@ def pytest_configure(config):
             else:
                 print('workdir path not found: {}'.format(config.option.workdir))
                 pytest.exit('workdir path not found')
+        elif CAFY_REPO:
+            work_dir = os.path.join(CAFY_REPO, work_dir_name)
         else:
             work_dir = os.path.join(os.getcwd(), work_dir_name)
 
@@ -1979,7 +1981,7 @@ class EmailReport(object):
         '''this hook is the execution point of email plugin'''
         #self._generate_email_report(terminalreporter)
         self._generate_all_log_html()
-        if self.CAFY_REPO:
+        if CafyLog.work_dir:
             option = terminalreporter.config.option
             # self._create_archive(option)
             #If junitxml option is given on cmd line, this file is available
