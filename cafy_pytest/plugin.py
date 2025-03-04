@@ -271,7 +271,7 @@ def load_config_file(filename=None):
     #  - cafykit/pytest_cafy_config.yaml (in the cafykit package)
     if not filename and "GIT_REPO" in os.environ:
         legacy_repo_path = os.path.join(
-            os.environ["GIT_REPO"], "work", "pytest_cafy_config.yaml"
+            os.environ["GIT_REPO"], "work/pytest_cafy_config.yaml"
         )
         if os.path.exists(legacy_repo_path):
             filename = legacy_repo_path
@@ -282,7 +282,7 @@ def load_config_file(filename=None):
             pass
         else:
             cafykit_pkg_path = os.path.join(
-                os.path.dirname(cafykit.__file__), "pytest_cafy_config.yaml"
+                os.path.dirname(cafykit.__file__), "config/pytest_cafy_config.yaml"
             )
             if os.path.exists(cafykit_pkg_path):
                 filename = cafykit_pkg_path
