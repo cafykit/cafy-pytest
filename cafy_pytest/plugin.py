@@ -53,9 +53,6 @@ from .cafypdb_config import CafyPdb_Configs
 
 
 collection_setup = Config()
-#Check with CAFYKIT_HOME or GIT_REPO or CAFYAP_REPO environment is set,
-#if all are set, CAFYAP_REPO takes precedence
-CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
 
 ## Environment variable is a string always. This code needs to be imrpoved to string as "true/false"
 CLS = int(os.environ.get("CLS", 0))
@@ -64,34 +61,34 @@ LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
 LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
 if not (LOGSTASH_PORT or LOGSTASH_SERVER) and CLS ==1 :
     CLS = 0
-    
-
-
 
 
 setattr(pytest,"allure",Cafy)
 
-if CAFY_REPO is None:
-    #If CAFYAP_REPO is not set, check if GIT_REPO or CAFYKIT_HOME is set
-    #If both GIT_REPO and CAFYKIT_HOME are set, CAFYKIT_HOME takes precedence
-    CAFY_REPO = os.environ.get("CAFYKIT_HOME", None)
-    if CAFY_REPO:
-        os.environ['CAFY_REPO'] = CAFY_REPO
-    else:
-        CAFY_REPO = os.environ.get("GIT_REPO", None)
-        if CAFY_REPO:
-            if os.path.exists(os.path.join(CAFY_REPO, 'work', 'pytest_cafy_config.yaml')):
-                # CAFY_REPO variable has been set to correct repo.
-                os.environ['CAFY_REPO'] = CAFY_REPO
-            else:
-                msg = 'GIT_REPO has not been set to correct repo.'
-                pytest.exit(msg)
-else:
-    os.environ['CAFY_REPO'] = CAFY_REPO
 
-if not CAFY_REPO:
-    msg = "Please set the environment variable GIT_REPO or CAFYKIT_HOME or CAFYAP_REPO "
-    pytest.exit(msg)
+# Check a few env vars to find the CAFY repo, if given.
+#
+# This is no longer a hard requirement, but checking the env vars is left here
+# so that backwards compatibility can be maintained for the case that the repo
+# is specified.
+#
+# The following env vars are checked (in this order):
+#  - CAFYAP_REPO
+#  - CAFYKIT_HOME
+#  - GIT_REPO
+#
+# The CAFY_REPO env var is set in the latter two cases (also for backwards
+# compatibility).
+
+CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
+if CAFY_REPO is None and "CAFYKIT_HOME" in os.environ:
+    CAFY_REPO = os.environ["CAFYKIT_HOME"]
+    os.environ["CAFY_REPO"] = CAFY_REPO
+if CAFY_REPO is None and "GIT_REPO" in os.environ:
+    CAFY_REPO = os.environ["GIT_REPO"]
+    os.environ["CAFY_REPO"] = CAFY_REPO
+    if not os.path.isdir(os.path.join(CAFY_REPO, 'work')):
+        pytest.exit(f'GIT_REPO has not been set to correct repo.')
 
 
 cafy_args = os.environ.get('CAFY_ARGS')
@@ -268,17 +265,36 @@ def is_valid_cafyarg(arg):
 
 
 def load_config_file(filename=None):
-    _filename = filename
-    if not _filename:
-        git_repo = os.getenv("GIT_REPO", None)
-    if git_repo:
+    config = {}
+    # If no file path given the check the following places (in order):
+    #  - $GIT_REPO/work/pytest_cafy_config.yaml (for backwards compatibility)
+    #  - cafykit/pytest_cafy_config.yaml (in the cafykit package)
+    if not filename and "GIT_REPO" in os.environ:
+        legacy_repo_path = os.path.join(
+            os.environ["GIT_REPO"], "work/pytest_cafy_config.yaml"
+        )
+        if os.path.exists(legacy_repo_path):
+            filename = legacy_repo_path
+    if not filename:
         try:
-            _filename = os.path.join(
-                git_repo, "work", "pytest_cafy_config.yaml")
-            with open(_filename, 'r') as stream:
-                return (yaml.safe_load(stream))
-        except:
-            return {}
+            import cafykit
+        except ImportError:
+            pass
+        else:
+            cafykit_pkg_path = os.path.join(
+                os.path.dirname(cafykit.__file__), "config/pytest_cafy_config.yaml"
+            )
+            if os.path.exists(cafykit_pkg_path):
+                filename = cafykit_pkg_path
+
+    if filename:
+        try:
+            with open(filename, 'r') as stream:
+                config = yaml.safe_load(stream)
+        except OSError:
+            print(f"WARNING: Could not read config file {filename}", file=sys.stderr)
+
+    return config
 
 def is_jsonable(val):
     try:
@@ -848,7 +864,7 @@ class EmailReport(object):
         # with single test script
         _current_time = get_datentime()
         email_report = 'email_report.html'
-        if self.CAFY_REPO:
+        if CafyLog.work_dir:
             #self.archive_name = CafyLog.work_dir + '.zip'
             #self.archive = os.path.join(CafyLog.work_dir, self.archive_name)
             self.archive = CafyLog.work_dir
@@ -1967,7 +1983,7 @@ class EmailReport(object):
         '''this hook is the execution point of email plugin'''
         #self._generate_email_report(terminalreporter)
         self._generate_all_log_html()
-        if self.CAFY_REPO:
+        if CafyLog.work_dir:
             option = terminalreporter.config.option
             # self._create_archive(option)
             #If junitxml option is given on cmd line, this file is available
@@ -2258,7 +2274,7 @@ class CafyReportData(object):
                 html_link = os.path.join(
                         os.path.sep, CafyLog.web_host, file_link)
             else:
-                if path.startswith(('/auto', '/ws')):
+                if not path or path.startswith(('/auto', '/ws')):
                     html_link = os.path.join(
                             os.path.sep, 'http://allure.cisco.com', file_link)
                 else:
