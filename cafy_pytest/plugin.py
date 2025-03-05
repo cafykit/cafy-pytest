@@ -403,11 +403,12 @@ def pytest_configure(config):
                 pytest.exit('reportdir path not found')
         elif config.option.workdir:
             if os.path.exists(config.option.workdir):
-                custom_workdir = config.option.workdir
-                work_dir = custom_workdir
+                work_dir = config.option.workdir
             else:
                 print('workdir path not found: {}'.format(config.option.workdir))
                 pytest.exit('workdir path not found')
+        elif CAFY_REPO:
+            work_dir = os.path.join(CAFY_REPO, "work", "archive", work_dir_name)
         else:
             work_dir = os.path.join(os.getcwd(), work_dir_name)
 
