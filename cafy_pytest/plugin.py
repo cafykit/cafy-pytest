@@ -77,18 +77,18 @@ setattr(pytest,"allure",Cafy)
 #  - CAFYKIT_HOME
 #  - GIT_REPO
 #
-# The CAFY_REPO env var is set in the latter two cases (also for backwards
-# compatibility).
+# The CAFY_REPO env var is set if any of the above env vars are set (backwards
+# compatible, relied on by AP tests).
 
 CAFY_REPO = os.environ.get("CAFYAP_REPO", None)
 if CAFY_REPO is None and "CAFYKIT_HOME" in os.environ:
     CAFY_REPO = os.environ["CAFYKIT_HOME"]
-    os.environ["CAFY_REPO"] = CAFY_REPO
 if CAFY_REPO is None and "GIT_REPO" in os.environ:
     CAFY_REPO = os.environ["GIT_REPO"]
-    os.environ["CAFY_REPO"] = CAFY_REPO
     if not os.path.isdir(os.path.join(CAFY_REPO, 'work')):
         pytest.exit(f'GIT_REPO has not been set to correct repo.')
+if CAFY_REPO:
+    os.environ["CAFY_REPO"] = CAFY_REPO
 
 
 cafy_args = os.environ.get('CAFY_ARGS')
