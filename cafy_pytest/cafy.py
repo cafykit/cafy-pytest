@@ -21,6 +21,7 @@ class Cafy:
         current_testcase = None
         current_failures = dict()
         active_exceptions = list()
+        block_exception = list()
 
     class TestcaseStatus:
         def __init__(self,name,status,message):
@@ -69,6 +70,12 @@ class Cafy:
                         exc_tb=exc_tb))
                     allure.attach(full_traceback, name=f"Exception in {self.title}", attachment_type=allure.attachment_type.TEXT)
                     Cafy.RunInfo.active_exceptions.append(exc_val)
+                    exception_dict = {
+                        'exc_type': exc_type,
+                        'exc_value': exc_val,
+                        'exc_tb':exc_tb
+                    }
+                    Cafy.RunInfo.block_exception.append(exception_dict)
             log.banner(f" Finish of step: {self.title}")
             return not self.blocking
 
@@ -79,6 +86,7 @@ class Cafy:
 
         def __enter__(self):
             Cafy.RunInfo.active_exceptions = list()
+            Cafy.RunInfo.block_exception = list()
             Cafy.RunInfo.current_failures[Cafy.RunInfo.current_testcase] = list()
 
         def __exit__(self, exc_type, exc_val, exc_tb):
@@ -87,8 +95,9 @@ class Cafy:
                 for exc in Cafy.RunInfo.active_exceptions:
                     new_list.append(exc)
                 Cafy.RunInfo.active_exceptions = list()
+                Cafy.RunInfo.block_exception = list()
                 raise CafyException.CompositeError(new_list)
-
+            Cafy.RunInfo.block_exception = list()
             Cafy.RunInfo.current_failures[Cafy.RunInfo.current_testcase] = list()
 
     def scope(title="Cafy Scope"):
