@@ -17,7 +17,8 @@ class TimeCollectorPlugin:
         self.total_sleep_time = 0
         self.total_set_command_time = 0
         self.total_get_command_time = 0
-        self.command_list = ['set_command','get_command','sleep']
+        self.total_exc_command_time = 0
+        self.command_list = ['set_command','get_command','sleep','exc_command']
 
     def update_granular_time_testcase_dict(self, current_test, event, method_name, elapsed_time, feature_type):
         """
@@ -211,6 +212,8 @@ class TimeCollectorPlugin:
                     self.total_set_command_time = self.total_set_command_time + total_sum
                 elif event == 'get_command':
                     self.total_get_command_time = self.total_get_command_time + total_sum
+                elif event == 'exc_command':
+                    self.total_exc_command_time = self.total_exc_command_time + total_sum
                 tmp_dict[command] = ["{:.2f}".format(total_sum), length, feature_type]
             else:
                 tmp_dict[command] = timings_list
@@ -236,14 +239,22 @@ class TimeCollectorPlugin:
                 time_report[test_case]['get_command'] = self.get_time_data(events["get_command"],'get_command')
             else:
                 time_report[test_case]['get_command'] = dict()
+            if 'exc_command' in events:
+                time_report[test_case]['exc_command'] = self.get_time_data(events["exc_command"],'exc_command')
+            else:
+                time_report[test_case]['exc_command'] = dict()
+
+
 
             time_report[test_case]['total_sleep_time'] = "{:.2f}".format(self.total_sleep_time)
             time_report[test_case]['total_set_command_time'] = "{:.2f}".format(self.total_set_command_time)
             time_report[test_case]['total_get_command_time'] = "{:.2f}".format(self.total_get_command_time)
-            time_report[test_case]['total_time'] = "{:.2f}".format(self.total_sleep_time+self.total_set_command_time+self.total_get_command_time)
+            time_report[test_case]['total_exc_command_time'] = "{:.2f}".format(self.total_exc_command_time)
+            time_report[test_case]['total_time'] = "{:.2f}".format(self.total_sleep_time+self.total_set_command_time+self.total_get_command_time+self.total_exc_command_time)
             self.total_sleep_time = 0
             self.total_set_command_time = 0
             self.total_get_command_time = 0
+            self.total_exc_command_time = 0
         return time_report
     
     def add_gta_data_into_db(self, time_report,aggregated_gta_data,run_id='local_run'):
@@ -300,6 +311,7 @@ class TimeCollectorPlugin:
                 'total_sleep_time': 0,
                 'total_set_command_time': 0,
                 'total_get_command_time': 0,
+                'total_exc_command_time':0,
                 'total_event_time': 0,
                 'total_run_time': run_time
                 }
@@ -307,10 +319,12 @@ class TimeCollectorPlugin:
             sleep_time = gta_data[test]['totals']['total_sleep_time']
             set_command_time = gta_data[test]['totals']['total_set_command_time']
             get_command_time = gta_data[test]['totals']['total_get_command_time']
+            exc_command_time = gta_data[test]['totals']['total_exc_command_time']
             aggregated_data['total_sleep_time'] = aggregated_data['total_sleep_time'] + sleep_time
             aggregated_data['total_set_command_time'] = aggregated_data['total_set_command_time'] + set_command_time
             aggregated_data['total_get_command_time'] = aggregated_data['total_get_command_time'] + get_command_time
-            aggregated_data['total_event_time'] = aggregated_data['total_event_time'] + sleep_time + get_command_time + set_command_time
+            aggregated_data['total_exc_command_time'] = aggregated_data['total_exc_command_time'] + exc_command_time
+            aggregated_data['total_event_time'] = aggregated_data['total_event_time'] + sleep_time + get_command_time + set_command_time + exc_command_time
         return aggregated_data
 
     def pytest_terminal_summary(self, terminalreporter):
