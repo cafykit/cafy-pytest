@@ -1314,6 +1314,9 @@ class EmailReport(object):
                 test_class = report.nodeid.split('::')[1]
                 if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
                     analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
+                    if analyzer_status and analyzer_status['status'] == True and self.testcase_dict[testcase_name].status == 'passed':
+                        analyzer_status['failures'] =  'failed due to crased'
+                        self.testcase_dict[testcase_name].status = 'failed'
                     self.log.info('Analyzer Status is {}'.format(analyzer_status))
                 else:
                     self.log.info('Analyzer is not invoked as testcase failed in setup')
