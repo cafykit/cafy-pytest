@@ -1119,9 +1119,13 @@ class EmailReport(object):
             try:
                 elist = list()
                 #title = Cafy.RunInfo.active_exceptions.pop()
+                if Cafy.RunInfo.block_exception:
+                    CafyLog().fail(str(Cafy.RunInfo.block_exception))
+                    self.exception_interact(item,call,result)
                 for exception in Cafy.RunInfo.active_exceptions:
                     elist.append(exception)
                 Cafy.RunInfo.active_exceptions = list()
+                Cafy.RunInfo.block_exception = list()
                 raise CafyException.CompositeError(elist)
             except:
                 exc_info = sys.exc_info()
@@ -1416,6 +1420,7 @@ class EmailReport(object):
                 self.model_coverage_report[testcase_name]=CafyLog.model_tracker_dict
                 CafyLog.model_tracker_dict={}
             self.log.title("Finish test: %s (%s)" %(testcase_name,status))
+            Cafy.RunInfo.block_exception = list()
             self.log.info("="*80)
 
         #The following if block is executed for @pytest.mark.xfail(run=False) and
@@ -1676,6 +1681,158 @@ class EmailReport(object):
         except Exception as e:
             self.log.info("Cafy Debugger: closing port Failed {}".format(e))
 
+    def exception_interact(self, node, call, report):
+        #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to collector server
+        if self.reg_dict:
+            if hasattr(report, 'when'):
+                if report.when == 'setup':
+                    test_class = node.nodeid.split('::')[1]
+                    if test_class not in self.analyzer_testcase.keys():
+                        self.analyzer_testcase.update({test_class: 1})
+                    else:
+                        self.analyzer_testcase[test_class] += 1
+                    if node.cls not in self.errored_testcase_count:
+                        self.errored_testcase_count[node.cls] = 1
+                    else:
+                        self.errored_testcase_count[node.cls]+=1
+
+                if (node.cls in self.errored_testcase_count and self.errored_testcase_count[node.cls]==1) or report.when!='setup':
+                    testcase_name = node.name
+                    inherited_classes = []
+                    if node.cls:
+                        class_name = node.cls
+                        base_classes = inspect.getmro(class_name)
+                        for base_class in base_classes:
+                            if base_class.__name__ not in ["ApBase", "object"]:
+                                inherited_classes.append(base_class.__name__)
+                        index = 1
+                        if len(base_classes) == 3:
+                            index = 0
+                        base_class_name = base_classes[index].__name__
+                        #base_class_name = base_classes[1].__name__
+                    else:
+                        base_class_name = None
+                    if "reg_id" in self.reg_dict:
+                        reg_id = self.reg_dict["reg_id"]
+                    else:
+                        reg_id = '00'
+
+                    collector_exception_name_list = []
+                    collector_actual_obj_dict_list = []
+                    collector_actual_obj_name_list = []
+                    collector_failed_attribute_list = []
+                    rc_exception_name_list = []
+                    rc_actual_obj_dict_list = []
+                    rc_actual_obj_name_list = []
+                    rc_failed_attribute_list = []
+                    exception_details = ""
+                    all_exceptions = list()
+
+                    if Cafy.RunInfo.block_exception:
+                        all_exceptions = Cafy.RunInfo.block_exception
+
+                    if call.excinfo:
+                        exc_type = call.excinfo.type
+                        exc_value = call.excinfo.value
+                        call_exc_dict = {
+                            'exc_type' : exc_type,
+                            'exc_value': exc_value
+                        }
+                        all_exceptions.append(call_exc_dict)
+
+                    for exec in all_exceptions:
+                        exception_type = exec['exc_type']
+                        try:
+                            if issubclass(exception_type, CafyException.CafyBaseException):
+                                exception_details += exec['exc_value'].get_exception_details()
+                                self.log.exception_details = exception_details
+                        except:
+                            self.log.info("Error happened while getting exception details for retest")
+
+                        # Check if the exception encountered is not an instance of CafyBaseException, then don't invoke collector service
+                        if not issubclass(exception_type, CafyException.CafyBaseException):
+                            self.log.info(
+                                "The encountered exception '%s' is not an instance of CafyBaseException, It could be a python built-in exception."
+                                " Therefore collector service will not be invoked " \
+                                % exception_type.__name__)
+                        else:
+                            exception_name = exec['exc_type'].__name__
+                            if exception_name == "CompositeError":
+                                for curr_exception in exec['exc_value'].exceptions:
+                                    exception_type = type(curr_exception).__name__
+                                    call_dict = {}
+                                    if 'VerificationError' in exception_type:
+                                        exception_name = 'VerificationError'
+                                        if hasattr(curr_exception, 'verifier'):
+                                            call_dict['verifier'] = curr_exception.verifier
+                                        if hasattr(curr_exception, 'columns'):
+                                            call_dict['columns'] = curr_exception.columns
+                                    elif 'TgenCheckTrafficError'in exception_type:
+                                        exception_name = 'TgenCheckTrafficError'
+                                        if hasattr(curr_exception, 'item_stats'):
+                                            call_dict['item_stats'] = curr_exception.item_stats
+                                        if hasattr(curr_exception, 'flow_stats'):
+                                            call_dict['flow_stats'] = curr_exception.flow_stats
+                                    else:
+                                        exception_name = 'None'
+                                    self.handle_all_exceptions(base_class_name, call_dict, exception_name,
+                                                            collector_exception_name_list, collector_actual_obj_dict_list,
+                                                            collector_actual_obj_name_list, collector_failed_attribute_list,
+                                                            rc_exception_name_list, rc_actual_obj_dict_list,
+                                                            rc_actual_obj_name_list,
+                                                            rc_failed_attribute_list)
+                            else:
+                                call_dict = exec['exc_value'].__dict__
+                                self.handle_all_exceptions(base_class_name, call_dict, exception_name,
+                                                        collector_exception_name_list, collector_actual_obj_dict_list,
+                                                        collector_actual_obj_name_list, collector_failed_attribute_list,
+                                                        rc_exception_name_list, rc_actual_obj_dict_list,
+                                                        rc_actual_obj_name_list,
+                                                        rc_failed_attribute_list)
+
+                    headers = {'content-type': 'application/json'}
+
+                    if len(collector_actual_obj_dict_list) > 0:
+                        params = {"testcase_name": testcase_name, "class_name": base_class_name,
+                                    "inherited_classes": inherited_classes,
+                                    "reg_dict": self.reg_dict, "actual_obj_name": collector_actual_obj_name_list,
+                                    "actual_obj_dict": collector_actual_obj_dict_list,
+                                    "failed_attr": collector_failed_attribute_list,
+                                    "debug_server_name": CafyLog.debug_server,
+                                    "exception_name": collector_exception_name_list}
+                        if report.when == 'setup':
+                            if hasattr(node.parent, 'cls') and self.debug_collector == False:
+                                self.debug_collector = True
+                                response = self.invoke_reg_on_failed_testcase(params, headers)
+                                if response is not None and response.status_code == 200:
+                                    if response.text:
+                                        self.log.info("Setup: Debug Collector logs: %s" % response.text)
+                        elif report.when == 'call':
+                            response = self.invoke_reg_on_failed_testcase(params, headers)
+                            if response is not None and response.status_code == 200:
+                                if response.text:
+                                    self.log.info("Test: Debug Collector logs: %s" % response.text)
+                        elif report.when == 'teardown':
+                            response = self.invoke_reg_on_failed_testcase(params, headers)
+                            if response is not None and response.status_code == 200:
+                                if response.text:
+                                    self.log.info("Teardown: Debug Collector logs: %s" % response.text)
+
+
+                    if len(rc_actual_obj_dict_list) > 0:
+                        params = {"testcase_name": testcase_name, "class_name": base_class_name,
+                                    "inherited_classes": inherited_classes,
+                                    "reg_dict": self.reg_dict, "actual_obj_name": rc_actual_obj_name_list,
+                                    "actual_obj_dict": rc_actual_obj_dict_list, "failed_attr": rc_failed_attribute_list,
+                                    "debug_server_name": CafyLog.debug_server,
+                                    "exception_name": rc_exception_name_list}
+                        response = self.invoke_rc_on_failed_testcase(params, headers)
+                        if response is not None and response.status_code == 200:
+                            if response.json().get("traffic_logs"):
+                                self.rclog.info("Debug RC logs: \n%s" % response.json()["traffic_logs"])
+            else:
+                self.log.debug("Type of report obtained is %s. Debug engine is only triggered for reports of type TestReport" %type(report))
+
     def pytest_exception_interact(self, node, call, report):
         '''
         if cafypdb enabled using --cafypdb then on exception or error init Custom pdb class
@@ -1708,149 +1865,9 @@ class EmailReport(object):
                 self.log.info("Cafy Debugger: Promt Failed {}".format(e))
             finally:
                 self.close_port(self.available_port)
-
-        if report.failed:
+        if report.failed and report.outcome == 'failed':
             CafyLog().fail(str(call.excinfo))
-            if report.outcome == 'failed':
-                #If config.debug_enable is False, the reg_dict is empty, So u want to skip talking to collector server
-                if self.reg_dict:
-                    if hasattr(report, 'when'):
-                        if report.when == 'setup':
-                            test_class = node.nodeid.split('::')[1]
-                            if test_class not in self.analyzer_testcase.keys():
-                                self.analyzer_testcase.update({test_class: 1})
-                            else:
-                                self.analyzer_testcase[test_class] += 1
-                            if node.cls not in self.errored_testcase_count:
-                                self.errored_testcase_count[node.cls] = 1
-                            else:
-                                self.errored_testcase_count[node.cls]+=1
-
-                        if (node.cls in self.errored_testcase_count and self.errored_testcase_count[node.cls]==1) or report.when!='setup':
-                            testcase_name = node.name
-                            inherited_classes = []
-                            if node.cls:
-                                class_name = node.cls
-                                base_classes = inspect.getmro(class_name)
-                                for base_class in base_classes:
-                                    if base_class.__name__ not in ["ApBase", "object"]:
-                                        inherited_classes.append(base_class.__name__)
-                                index = 1
-                                if len(base_classes) == 3:
-                                    index = 0
-                                base_class_name = base_classes[index].__name__
-
-
-                                #base_class_name = base_classes[1].__name__
-                            else:
-                                base_class_name = None
-                            if "reg_id" in self.reg_dict:
-                                reg_id = self.reg_dict["reg_id"]
-                            else:
-                                reg_id = '00'
-
-                            exception_type = call.excinfo.type
-                            try:
-                                if issubclass(exception_type, CafyException.CafyBaseException):
-                                    exception_details = call.excinfo.value.get_exception_details()
-                                    self.log.exception_details = exception_details
-                            except:
-                                self.log.info("Error happened while getting exception details for retest")
-
-                            # Check if the exception encountered is not an instance of CafyBaseException, then don't invoke collector service
-                            if not issubclass(exception_type, CafyException.CafyBaseException):
-                                self.log.info(
-                                    "The encountered exception '%s' is not an instance of CafyBaseException, It could be a python built-in exception."
-                                    " Therefore collector service will not be invoked " \
-                                    % exception_type.__name__)
-
-                            else:
-                                collector_exception_name_list = []
-                                collector_actual_obj_dict_list = []
-                                collector_actual_obj_name_list = []
-                                collector_failed_attribute_list = []
-                                rc_exception_name_list = []
-                                rc_actual_obj_dict_list = []
-                                rc_actual_obj_name_list = []
-                                rc_failed_attribute_list = []
-
-                                exception_name = exception_type.__name__
-                                if exception_name == "CompositeError":
-                                    for curr_exception in call.excinfo.value.exceptions:
-                                        exception_type = type(curr_exception).__name__
-                                        call_dict = {}
-                                        if 'VerificationError' in exception_type:
-                                            exception_name = 'VerificationError'
-                                            if hasattr(curr_exception, 'verifier'):
-                                                call_dict['verifier'] = curr_exception.verifier
-                                            if hasattr(curr_exception, 'columns'):
-                                                call_dict['columns'] = curr_exception.columns
-                                        elif 'TgenCheckTrafficError'in exception_type:
-                                            exception_name = 'TgenCheckTrafficError'
-                                            if hasattr(curr_exception, 'item_stats'):
-                                                call_dict['item_stats'] = curr_exception.item_stats
-                                            if hasattr(curr_exception, 'flow_stats'):
-                                                call_dict['flow_stats'] = curr_exception.flow_stats
-                                        else:
-                                            exception_name = 'None'
-
-                                        self.handle_all_exceptions(base_class_name, call_dict, exception_name,
-                                                                   collector_exception_name_list, collector_actual_obj_dict_list,
-                                                                   collector_actual_obj_name_list, collector_failed_attribute_list,
-                                                                   rc_exception_name_list, rc_actual_obj_dict_list,
-                                                                   rc_actual_obj_name_list,
-                                                                   rc_failed_attribute_list)
-                                else:
-                                    call_dict = call.excinfo.value.__dict__
-                                    self.handle_all_exceptions(base_class_name, call_dict, exception_name,
-                                                               collector_exception_name_list, collector_actual_obj_dict_list,
-                                                               collector_actual_obj_name_list, collector_failed_attribute_list,
-                                                               rc_exception_name_list, rc_actual_obj_dict_list,
-                                                               rc_actual_obj_name_list,
-                                                               rc_failed_attribute_list)
-
-                                headers = {'content-type': 'application/json'}
-
-                                if len(collector_actual_obj_dict_list) > 0:
-                                    params = {"testcase_name": testcase_name, "class_name": base_class_name,
-                                              "inherited_classes": inherited_classes,
-                                              "reg_dict": self.reg_dict, "actual_obj_name": collector_actual_obj_name_list,
-                                              "actual_obj_dict": collector_actual_obj_dict_list,
-                                              "failed_attr": collector_failed_attribute_list,
-                                              "debug_server_name": CafyLog.debug_server,
-                                              "exception_name": collector_exception_name_list}
-                                    if report.when == 'setup':
-                                        if hasattr(node.parent, 'cls') and self.debug_collector == False:
-                                            self.debug_collector = True
-                                            response = self.invoke_reg_on_failed_testcase(params, headers)
-                                            if response is not None and response.status_code == 200:
-                                               if response.text:
-                                                   self.log.info("Setup: Debug Collector logs: %s" % response.text)
-                                    elif report.when == 'call':
-                                        response = self.invoke_reg_on_failed_testcase(params, headers)
-                                        if response is not None and response.status_code == 200:
-                                            if response.text:
-                                                self.log.info("Test: Debug Collector logs: %s" % response.text)
-                                    elif report.when == 'teardown':
-                                        response = self.invoke_reg_on_failed_testcase(params, headers)
-                                        if response is not None and response.status_code == 200:
-                                            if response.text:
-                                                self.log.info("Teardown: Debug Collector logs: %s" % response.text)
-
-
-                                if len(rc_actual_obj_dict_list) > 0:
-                                    params = {"testcase_name": testcase_name, "class_name": base_class_name,
-                                              "inherited_classes": inherited_classes,
-                                              "reg_dict": self.reg_dict, "actual_obj_name": rc_actual_obj_name_list,
-                                              "actual_obj_dict": rc_actual_obj_dict_list, "failed_attr": rc_failed_attribute_list,
-                                              "debug_server_name": CafyLog.debug_server,
-                                              "exception_name": rc_exception_name_list}
-                                    response = self.invoke_rc_on_failed_testcase(params, headers)
-                                    if response is not None and response.status_code == 200:
-                                        if response.json().get("traffic_logs"):
-                                            self.rclog.info("Debug RC logs: \n%s" % response.json()["traffic_logs"])
-                    else:
-                        self.log.debug("Type of report obtained is %s. Debug engine is only triggered for reports of type TestReport" %type(report))
+            self.exception_interact(node,call,report)
 
     def handle_all_exceptions(self, base_class_name, call_dict, exception_name,
                               collector_exception_name_list,
