@@ -1108,6 +1108,7 @@ class EmailReport(object):
                     result.outcome = "failed"
                     result.longrepr = 'Teardown failed due to custom condition'
                     allure.attach("Details about teardown failure", name="Teardown Error", attachment_type=allure.attachment_type.TEXT)
+                    self.debug_analyzer = False
                 all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
                 template_file_name = os.path.join(self.CURRENT_DIR,
                                         "resources/all_log_template.html")
