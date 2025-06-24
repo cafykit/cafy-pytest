@@ -1108,7 +1108,6 @@ class EmailReport(object):
                     testcase_name =  self.get_test_name(result.nodeid)
                     test_class = result.nodeid.split('::')[1]
                     reg_id = self.reg_dict.get('reg_id')
-                    test_class = report.nodeid.split('::')[1]
                     if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
                         analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
                         if analyzer_status and analyzer_status['status'] == True and self.testcase_dict[testcase_name].status == 'passed':
