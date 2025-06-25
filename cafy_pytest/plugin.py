@@ -1111,7 +1111,7 @@ class EmailReport(object):
                         analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
                         if analyzer_status and analyzer_status['status'] == True and self.testcase_dict[testcase_name].status == 'passed':
                             if not analyzer_status['failures']:
-                                msg = 'failed due to analyzer'
+                                msg = 'failed due to debug analyzer'
                                 analyzer_status['failures'] =  msg
                             CafyLog.fail_log_msg = msg
                             self.testcase_dict[testcase_name].status = 'failed'
