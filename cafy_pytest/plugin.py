@@ -895,7 +895,6 @@ class EmailReport(object):
         self.cafypdb = cafypdb
         self.debugger_quit = False
         self.cafypdb_user_action = ''
-        self.debug_analyzer = False
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -1117,9 +1116,9 @@ class EmailReport(object):
                             CafyLog.fail_log_msg = msg
                             self.testcase_dict[testcase_name].status = 'failed'
                             result.outcome = "failed"
-                            result.longrepr = 'Teardown failed due to analyzer custom condition'
-                            allure.attach("Teardown failed due to analyzer custom condition", name="Teardown Error", attachment_type=allure.attachment_type.TEXT)
-                            self.debug_analyzer = True
+                            allure_log_msg = f"Teardown failed due to analyzer custom condition and {CafyLog.fail_log_msg}"
+                            result.longrepr = allure_log_msg
+                            allure.attach(allure_log_msg, name="Teardown Error", attachment_type=allure.attachment_type.TEXT)
                         self.log.info('Analyzer Status is {}'.format(analyzer_status))
                     else:
                         self.log.info('Analyzer is not invoked as testcase failed in setup')
@@ -1329,8 +1328,6 @@ class EmailReport(object):
                 register_object.register_testcase(testcase_name=testcase_name)
 
         if report.when == 'teardown':
-            if self.debug_analyzer:
-                self.debug_analyzer = False
             status = "unknown"
             if testcase_name in self.testcase_dict:
                 # if error occur during module teardown then marking status as failed and adding stack_exception
