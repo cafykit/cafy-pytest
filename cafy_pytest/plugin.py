@@ -1103,6 +1103,25 @@ class EmailReport(object):
         if call.when == "teardown":
             stdout_html = self._convert_to_html(result.capstdout)
             try:
+                if self.reg_dict:
+                    testcase_name =  self.get_test_name(result.nodeid)
+                    test_class = result.nodeid.split('::')[1]
+                    reg_id = self.reg_dict.get('reg_id')
+                    if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
+                        analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
+                        if analyzer_status and analyzer_status['status'] == True and self.testcase_dict[testcase_name].status == 'passed':
+                            if not analyzer_status['failures']:
+                                msg = 'failed due to debug analyzer'
+                                analyzer_status['failures'] =  msg
+                            CafyLog.fail_log_msg = msg
+                            self.testcase_dict[testcase_name].status = 'failed'
+                            result.outcome = "failed"
+                            allure_log_msg = f"Teardown failed due to analyzer custom condition and {CafyLog.fail_log_msg}"
+                            result.longrepr = allure_log_msg
+                            allure.attach(allure_log_msg, name="Teardown Error", attachment_type=allure.attachment_type.TEXT)
+                        self.log.info('Analyzer Status is {}'.format(analyzer_status))
+                    else:
+                        self.log.info('Analyzer is not invoked as testcase failed in setup')
                 all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
                 template_file_name = os.path.join(self.CURRENT_DIR,
                                         "resources/all_log_template.html")
@@ -1313,14 +1332,6 @@ class EmailReport(object):
                 register_object.register_testcase(testcase_name=testcase_name)
 
         if report.when == 'teardown':
-            if self.reg_dict:
-                reg_id = self.reg_dict.get('reg_id')
-                test_class = report.nodeid.split('::')[1]
-                if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
-                    analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
-                    self.log.info('Analyzer Status is {}'.format(analyzer_status))
-                else:
-                    self.log.info('Analyzer is not invoked as testcase failed in setup')
             status = "unknown"
             if testcase_name in self.testcase_dict:
                 # if error occur during module teardown then marking status as failed and adding stack_exception
