@@ -1109,14 +1109,11 @@ class EmailReport(object):
                     reg_id = self.reg_dict.get('reg_id')
                     if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
                         analyzer_status = self.post_testcase_status(reg_id, testcase_name, CafyLog.debug_server)
-                        if analyzer_status and analyzer_status['status'] == True and analyzer_status['failures']:
-                            result.outcome = "failed"
-                            self.testcase_dict[testcase_name].status = 'failed'
                         if analyzer_status and analyzer_status['status'] == True and self.testcase_dict[testcase_name].status == 'passed':
                             if not analyzer_status['failures']:
                                 msg = 'failed due to debug analyzer'
                                 analyzer_status['failures'] =  msg
-                            CafyLog.fail_log_msg = msg
+                                CafyLog.fail_log_msg = msg
                             self.testcase_dict[testcase_name].status = 'failed'
                             result.outcome = "failed"
                             allure_log_msg = f"Teardown failed due to analyzer custom condition and {CafyLog.fail_log_msg}"
