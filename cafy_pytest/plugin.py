@@ -1113,7 +1113,7 @@ class EmailReport(object):
                             if not analyzer_status['failures']:
                                 msg = 'failed due to debug analyzer'
                                 analyzer_status['failures'] =  msg
-                            CafyLog.fail_log_msg = msg
+                            CafyLog.fail_log_msg = analyzer_status['failures']
                             self.testcase_dict[testcase_name].status = 'failed'
                             result.outcome = "failed"
                             allure_log_msg = f"Teardown failed due to analyzer custom condition and {CafyLog.fail_log_msg}"
