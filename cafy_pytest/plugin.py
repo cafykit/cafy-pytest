@@ -219,6 +219,10 @@ def pytest_addoption(parser):
     group.addoption('--cafypdb', dest='cafypdb', action='store_true',
                     help='Variable to enable cafy PDB, default is False')
 
+    group.addoption('--testcase-html', dest='testlog_attachment', action='store_true',
+                    default=False,
+                    help='If specified, attaches test logs in html to each testcase of allure report. Default is False.')
+
 
 def is_valid_param(arg, file_type=None):
     if not arg:
@@ -1086,7 +1090,7 @@ class EmailReport(object):
         report = yield
         result = report.get_result()
 
-        if call.when == "teardown":
+        if call.when == "teardown" and self.config.testlog_attachment:
             stdout_html = self._convert_to_html(result.capstdout)
             try:
                 all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
