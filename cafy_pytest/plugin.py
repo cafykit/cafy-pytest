@@ -157,6 +157,10 @@ def pytest_addoption(parser):
     group = parser.getgroup('Report Directories')
     group.addoption('--work-dir', dest="workdir", metavar="DIR", default=None,
                     help="Path for work dir")
+    group.addoption('--no-testcase-html', dest='testlog_attachment', action='store_true',
+                    default=False,
+                    help='If True, attaches testlog html to each testcase of allure report. Default is False.')
+
 
     group.addoption('-R','--report-dir', dest="reportdir",
                     metavar="DIR",
@@ -232,8 +236,8 @@ def pytest_addoption(parser):
     group = parser.getgroup('Cafy gta ')
     group.addoption('--cafygta', dest='cafygta', action='store_true',
                     help='Variable to enable cafy gta, default is False')
-
-
+    
+    
 def is_valid_param(arg, file_type=None):
     if not arg:
         pytest.exit("%s not provided!" % file_type)
@@ -598,8 +602,9 @@ def pytest_configure(config):
                 CafyLog.registration_id = reg_dict['reg_id']
                 with open(os.path.join(CafyLog.work_dir, "cafy_reg_id.txt"), "w") as f:
                                 f.write(reg_dict['reg_id'])
-        
-        config._email = EmailReport(email_list,
+
+        config._email = EmailReport(config.option,
+                                    email_list,
                                     email_from,
                                     email_from_passwd,
                                     smtp_server,
@@ -821,9 +826,10 @@ class EmailReport(object):
     START_TIME = time.asctime(time.localtime(START.timestamp()))
     os.environ['START_TIME'] = str(time.perf_counter())
 
-    def __init__(self, email_addr_list, email_from, email_from_passwd,
+    def __init__(self, config_option, email_addr_list, email_from, email_from_passwd,
                  smtp_server, smtp_port, no_email, no_detail_message, topo_file, script_list, reg_dict, collection_list, cafypdb):
         '''
+        @param config_option: configuration options
         @param email_addr_list: list of email address to which email needs to
         be sent.
         @param email_from: email address with which the email will be sent
@@ -843,6 +849,7 @@ class EmailReport(object):
         @param reg_dict : registration_dict for debug containing testbed file, input file,
                             debug file and reg_id
         '''
+        self.config_option = config_option
         self.email_addr_list = email_addr_list
         self.email_from = email_from
         self.email_from_passwd = email_from_passwd
@@ -1101,7 +1108,10 @@ class EmailReport(object):
         result = report.get_result()
 
         if call.when == "teardown":
-            stdout_html = self._convert_to_html(result.capstdout)
+            if self.config_option.testlog_attachment:
+                stdout_html = None
+            else:
+                stdout_html = self._convert_to_html(result.capstdout)
             try:
                 if self.reg_dict:
                     testcase_name =  self.get_test_name(result.nodeid)
@@ -1122,17 +1132,20 @@ class EmailReport(object):
                         self.log.info('Analyzer Status is {}'.format(analyzer_status))
                     else:
                         self.log.info('Analyzer is not invoked as testcase failed in setup')
-                all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
-                template_file_name = os.path.join(self.CURRENT_DIR,
-                                        "resources/all_log_template.html")
-                with open(template_file_name) as html_src:
-                    html_template = html_src.read()
-                    template = Template(html_template)
-                stdout_html = template.render(log_groupings = all_log_groupings)
+                if  not self.config_option.testlog_attachment:
+                    stdout_html = self._convert_to_html(result.capstdout)
+                    all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
+                    template_file_name = os.path.join(self.CURRENT_DIR,
+                                            "resources/all_log_template.html")
+                    with open(template_file_name) as html_src:
+                        html_template = html_src.read()
+                        template = Template(html_template)
+                    stdout_html = template.render(log_groupings = all_log_groupings)
             except Exception as e:
                 self.log.warning("Error while adding html filters to test_log {}".format(e))
             finally:
-                allure.attach(stdout_html, 'test_log','text/html')
+                if stdout_html is not None:
+                    allure.attach(stdout_html, 'test_log','text/html')
 
         if call.when == "call" and Cafy.RunInfo.active_exceptions:
             try:
