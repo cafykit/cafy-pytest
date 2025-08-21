@@ -188,6 +188,11 @@ def pytest_addoption(parser):
                     type=lambda x: is_valid_param(x, file_type='selective_test_file'),
                     help='Filename of your selective testcases')
 
+    group.addoption('--collection-config-file', action='store', dest='collection_config_file',
+                    metavar='collection_config_file',
+                    type=lambda x: is_valid_param(x, file_type='collection_config_file'),
+                    help='Filename of the collection config')
+
     group.addoption('--commit-check', dest='commit_check', action='store_true',
                     help='Variable to set commit check option, default is False')
 
@@ -386,6 +391,7 @@ def pytest_configure(config):
     CafyLog.topology_file = config.option.topology_file
     CafyLog.test_input_file = config.option.test_input_file
     CafyLog.tag_file = config.option.tag_file
+    CafyLog.collection_config_file = config.option.collection_config_file
     CafyLog.mongomode=config.option.mongo_mode
     CafyLog.giso_dir = config.option.giso_dir
     script_list = config.option.file_or_dir
