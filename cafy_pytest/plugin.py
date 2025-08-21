@@ -2040,31 +2040,39 @@ class EmailReport(object):
 
         # if mode present then print the reporting mode of per testcase as separate coloumn Testcase_mode else report same as ealier
         if hasattr(CafyLog,"hybrid_mode_dict") and CafyLog.hybrid_mode_dict.get('mode',None):
-           terminalreporter.write_line("\n TestCase Summary Status Table")
-           hybrid_mode_test_list = []
-           hybrid_mode_dict=self.hybrid_mode_status_dict
-           mode_status=""
-           for k,v in self.testcase_dict.items():
-               if v.name in hybrid_mode_dict.keys():
-                  mode_status=hybrid_mode_dict[v.name]
-               hybrid_mode_test_list.append([v.name, v.status,mode_status])
-           headers = ['Testcase_name', 'Status','Testcase_mode']
-           self.tabulate_result = tabulate(hybrid_mode_test_list, headers=headers[:], tablefmt='grid')
-           terminalreporter.write_line(self.tabulate_result)
-           self.dump_hybrid_mode_report()
+            terminalreporter.write_line("\n TestCase Summary Status Table")
+            hybrid_mode_test_list = []
+            hybrid_mode_dict=self.hybrid_mode_status_dict
+            mode_status=""
+            for k,v in self.testcase_dict.items():
+                if v.name in hybrid_mode_dict.keys():
+                    mode_status=hybrid_mode_dict[v.name]
+                hybrid_mode_test_list.append([v.name, v.status,mode_status])
+            headers = ['Testcase_name', 'Status','Testcase_mode']
+            self.tabulate_result = tabulate(hybrid_mode_test_list, headers=headers[:], tablefmt='grid')
+            terminalreporter.write_line(self.tabulate_result)
+            self.dump_hybrid_mode_report()
         else:
-           terminalreporter.write_line("\n TestCase Summary Status Table")
-           temp_list = []
+            terminalreporter.write_line("\n TestCase Summary Status Table")
 
-           for k,v in self.testcase_dict.items():
-               try:
-                   message = v.message.chain[0][1].message
-               except:
-                   message = v.message
-               temp_list.append((v.name, v.status))
-           headers = ['Testcase_name', 'Status']
-           self.tabulate_result = tabulate(temp_list, headers=headers[:], tablefmt='grid')
-           terminalreporter.write_line(self.tabulate_result)
+            if self.no_detail_message:
+                headers = ['Testcase_name', 'Status']
+                temp_list = [(v.name, v.status) for v in self.testcase_dict.values()]
+            else:
+                headers = ['Testcase_name', 'Status', "Message"]
+                temp_list = []
+                for v in self.testcase_dict.values():
+                    try:
+                        message = v.message.chain[0][1].message
+                    except Exception:
+                        message = v.message
+                    # Ensure the message isn't too long, truncating if necessary.
+                    if isinstance(message, str) and len(message) > 100:
+                        message = message[:100] + " ..."
+                    temp_list.append((v.name, v.status, message))
+
+            self.tabulate_result = tabulate(temp_list, headers=headers, tablefmt='grid')
+            terminalreporter.write_line(self.tabulate_result)
         self.dump_model_coverage_report()
         terminalreporter.write_line("Results: {work_dir}".format(work_dir=CafyLog.work_dir))
         terminalreporter.write_line("Reports: {allure_html_report}".format(allure_html_report=self.allure_html_report))
