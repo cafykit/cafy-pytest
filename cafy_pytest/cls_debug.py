@@ -295,6 +295,8 @@ class DebugAdapter:
            
     def collector_call_snapshot(self, params, headers):
         """_summary_
+        This function initiates a data snapshot collection process.
+        It then polls a status endpoint to monitor the collection's completion.
 
         Args:
             params (dict) : dictionary of parameters sent to collector service.
