@@ -204,6 +204,8 @@ def pytest_addoption(parser):
     group = parser.getgroup('Cafykit Debug ')
     group.addoption('--debug-enable', dest='debug_enable', action='store_true',
                     help='Variable to enable cafykit debug, default is False')
+    group.addoption('--snapshot-enable', dest='snapshot_enable', action='store_true',
+                    help='Variable to enable snapshot, default is False')
 
     group = parser.getgroup('Script Arguments')
     group.addoption('--script-args', action='store', dest='script_args',
@@ -383,6 +385,7 @@ def pytest_configure(config):
     cafykit_debug_enable = config.option.debug_enable
     #setting for global access
     CafyLog.debug_enable = cafykit_debug_enable
+    cafykit_snapshot_enable = config.option.snapshot_enable
     CafyLog.topology_file = config.option.topology_file
     CafyLog.test_input_file = config.option.test_input_file
     CafyLog.tag_file = config.option.tag_file
@@ -902,6 +905,8 @@ class EmailReport(object):
         self.cafypdb = cafypdb
         self.debugger_quit = False
         self.cafypdb_user_action = ''
+        self.first_failure_detected = False
+        self.first_failed_testcase_name = None
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -1344,6 +1349,7 @@ class EmailReport(object):
             if CafyLog.debug_enable:
                 register_object.register_testcase(testcase_name=testcase_name)
 
+
         if report.when == 'teardown':
             status = "unknown"
             if testcase_name in self.testcase_dict:
@@ -1455,6 +1461,17 @@ class EmailReport(object):
            testcase_status = report.outcome
            self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,testcase_status,report.longrepr)
            if testcase_status == 'failed':
+                if not self.first_failure_detected:
+                    self.first_failure_detected = True
+                    self.first_failed_testcase_name = testcase_name
+                    if self.reg_dict and cafykit_snapshot_enable:
+                        headers = {'content-type': 'application/json'}
+                        params = {"testcase_name": testcase_name,
+                                  "reg_dict": self.reg_dict,
+                                  "debug_server_name": CafyLog.debug_server}
+                        self.invoke_reg_on_failed_testcase_snapshot(params, headers)
+                    self.log.error(f"FIRST FAILURE DETECTED: Test case '{testcase_name}' failed during setup.")
+
                 if report.longrepr:
                     self.temp_json["stack_exception"] = str(report.longrepr)
                 else:
@@ -1491,6 +1508,17 @@ class EmailReport(object):
 
                 self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,testcase_status,report.longrepr)
                 if testcase_status == 'failed':
+                    if not self.first_failure_detected:
+                        self.first_failure_detected = True
+                        self.first_failed_testcase_name = testcase_name
+                        if self.reg_dict and cafykit_snapshot_enable:
+                            headers = {'content-type': 'application/json'}
+                            params = {"testcase_name": testcase_name,
+                                      "reg_dict": self.reg_dict,
+                                      "debug_server_name": CafyLog.debug_server}
+                            self.invoke_reg_on_failed_testcase_snapshot(params, headers)
+                        self.log.error(f"FIRST FAILURE DETECTED: Test case '{testcase_name}' failed during setup.")
+                if report.longrepr:
                     self.testcase_failtrace_dict[testcase_name] = CafyLog.fail_log_msg
                     if report.longrepr:
                         self.temp_json["stack_exception"] = str(report.longrepr)
@@ -1501,6 +1529,16 @@ class EmailReport(object):
                 self.testcase_dict[testcase_name] = Cafy.TestcaseStatus(testcase_name,testcase_status,report.longrepr)
                 if testcase_status == 'failed':
                     if report.longrepr:
+                        if not self.first_failure_detected:
+                            self.first_failure_detected = True
+                            self.first_failed_testcase_name = testcase_name
+                            if self.reg_dict and cafykit_snapshot_enable:
+                                headers = {'content-type': 'application/json'}
+                                params = {"testcase_name": testcase_name,
+                                          "reg_dict": self.reg_dict,
+                                          "debug_server_name": CafyLog.debug_server}
+                                self.invoke_reg_on_failed_testcase_snapshot(params, headers)
+                            self.log.error(f"FIRST FAILURE DETECTED: Test case '{testcase_name}' failed during call.")
                         self.testcase_failtrace_dict[testcase_name] = report.longrepr
                         self.temp_json["stack_exception"]=str(report.longrepr)
                         self.log.error("stack_exception %s" %report.longrepr)
@@ -1983,6 +2021,15 @@ class EmailReport(object):
         :param headers: headers associated with api request call
         """
         return register_object.collector_call(params=params, headers=headers)
+
+    def invoke_reg_on_failed_testcase_snapshot(self, params, headers):
+        """
+        will call debug service api to start collection
+        :param params: failure details of testcase for given run
+        :param headers: headers associated with api request call
+        """
+        self.log.info(f"Invoking snapshot collection for first failure with params: {params}")
+        return register_object.collector_call_snapshot(params=params, headers=headers)
     
 
     def invoke_rc_on_failed_testcase(self, params, headers):
@@ -2194,6 +2241,7 @@ class EmailReport(object):
                       "input_file": CafyLog.test_input_file}
             headers = {'content-type': 'application/json'}
             register_object.collector_log(params=params, headers=headers, work_dir=CafyLog.work_dir)
+
 
         try:
             with open(os.path.join(CafyLog.work_dir, "retest_data.json"), "w") as f:

@@ -292,6 +292,52 @@ class DebugAdapter:
                 self.logger.warning(f'Error {e}')
                 self.logger.warning(f'Http call to registration service url:{url} is not successful')
                 return None
+           
+    def collector_call_snapshot(self, params, headers):
+        """_summary_
+
+        Args:
+            params (dict) : dictionary of parameters sent to collector service.
+            headers (dict): {'content-type': 'application/json'}
+
+        Returns:
+            response or None
+
+        """
+        if self.debug_server is None:
+            self.logger.info("debug_server name not provided in topo file")
+            return None
+        else:
+            url = f'http://{self.debug_server}:5001/startsnapshot/'
+            try:
+                self.logger.info(f'Calling registration service (url:{url}) to start collecting')
+                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=600)
+                if response.status_code == 200:
+                    waiting_time = 0
+                    poll_flag = True
+                    while(poll_flag):
+                        # Changed from /collectionstatus/ to /snapshotstatus/ as requested
+                        url_status = f'http://{self.debug_server}:5001/snapshotstatus/'
+                        response = requests_retry(self.logger, url_status, 'POST', json=params, headers=headers, timeout=30)
+                        if response.status_code == 200:
+                            message = response.json()
+                            if message["snapshot_status"] == True: # Assuming "collector_status" key remains relevant for snapshot status
+                                return response
+                            else:
+                                time.sleep(30)
+                                waiting_time = waiting_time + 30
+                                if waiting_time > 600:
+                                    poll_flag = False
+                        else:
+                            poll_flag = False
+                            self.logger.info(f'collection status api return status other then 200 response {response.status_code}')
+                else:
+                    self.logger.warning(f'start_debug part of handshake server returned code {response.status_code}')
+                    return None
+            except Exception as e:
+                self.logger.warning(f'Error {e}')
+                self.logger.warning(f'Http call to registration service url:{url} is not successful')
+                return None
 
     def rc_call(self, params, headers):
         """_summary_
