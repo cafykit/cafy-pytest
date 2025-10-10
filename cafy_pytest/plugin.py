@@ -386,6 +386,7 @@ def pytest_configure(config):
     #setting for global access
     CafyLog.debug_enable = cafykit_debug_enable
     cafykit_snapshot_enable = config.option.snapshot_enable
+    CafyLog.snapshot_enable = cafykit_snapshot_enable
     CafyLog.topology_file = config.option.topology_file
     CafyLog.test_input_file = config.option.test_input_file
     CafyLog.tag_file = config.option.tag_file
@@ -1464,7 +1465,7 @@ class EmailReport(object):
                 if not self.first_failure_detected:
                     self.first_failure_detected = True
                     self.first_failed_testcase_name = testcase_name
-                    if self.reg_dict and cafykit_snapshot_enable:
+                    if self.reg_dict and CafyLog.snapshot_enable:
                         headers = {'content-type': 'application/json'}
                         params = {"testcase_name": testcase_name,
                                   "reg_dict": self.reg_dict,
@@ -1511,7 +1512,7 @@ class EmailReport(object):
                     if not self.first_failure_detected:
                         self.first_failure_detected = True
                         self.first_failed_testcase_name = testcase_name
-                        if self.reg_dict and cafykit_snapshot_enable:
+                        if self.reg_dict and CafyLog.snapshot_enable:
                             headers = {'content-type': 'application/json'}
                             params = {"testcase_name": testcase_name,
                                       "reg_dict": self.reg_dict,
@@ -1532,7 +1533,7 @@ class EmailReport(object):
                         if not self.first_failure_detected:
                             self.first_failure_detected = True
                             self.first_failed_testcase_name = testcase_name
-                            if self.reg_dict and cafykit_snapshot_enable:
+                            if self.reg_dict and CafyLog.snapshot_enable:
                                 headers = {'content-type': 'application/json'}
                                 params = {"testcase_name": testcase_name,
                                           "reg_dict": self.reg_dict,
