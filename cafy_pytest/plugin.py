@@ -1359,6 +1359,16 @@ class EmailReport(object):
                     status = 'failed'
                     self.temp_json["stack_exception"] = str(report.longrepr)
                     self.testcase_dict[testcase_name].status = 'failed'
+                    if not self.first_failure_detected:
+                        self.first_failure_detected = True
+                        self.first_failed_testcase_name = testcase_name
+                        if self.reg_dict and CafyLog.snapshot_enable:
+                            headers = {'content-type': 'application/json'}
+                            params = {"testcase_name": testcase_name,
+                                      "reg_dict": self.reg_dict,
+                                      "debug_server_name": CafyLog.debug_server}
+                            self.invoke_reg_on_failed_testcase_snapshot(params, headers)
+                        self.log.error(f"FIRST FAILURE DETECTED: Test case '{testcase_name}' failed during teardown.")
                 else:
                     status = self.testcase_dict[testcase_name].status
             try:
