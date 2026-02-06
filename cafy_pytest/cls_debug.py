@@ -313,7 +313,7 @@ class DebugAdapter:
             url = f'http://{self.debug_server}:5001/startsnapshot/'
             try:
                 self.logger.info(f'Calling registration service (url:{url}) to start collecting')
-                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=1800)
+                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=2700)
                 if response.status_code == 200:
                     waiting_time = 0
                     poll_flag = True
@@ -327,8 +327,8 @@ class DebugAdapter:
                                 return response
                             else:
                                 time.sleep(60)
-                                waiting_time = waiting_time + 60
-                                if waiting_time > 1800:
+                                waiting_time = waiting_time + 90
+                                if waiting_time > 2700:
                                     poll_flag = False
                         else:
                             poll_flag = False
