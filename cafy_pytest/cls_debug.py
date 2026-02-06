@@ -326,7 +326,7 @@ class DebugAdapter:
                             if message["snapshot_status"] == True: # Assuming "collector_status" key remains relevant for snapshot status
                                 return response
                             else:
-                                time.sleep(60)
+                                time.sleep(90)
                                 waiting_time = waiting_time + 90
                                 if waiting_time > 2700:
                                     poll_flag = False
