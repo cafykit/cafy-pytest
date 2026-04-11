@@ -62,7 +62,7 @@ LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
 if not (LOGSTASH_PORT or LOGSTASH_SERVER) and CLS ==1 :
     CLS = 0
 
-
+# Testing Do not merge
 setattr(pytest,"allure",Cafy)
 
 
