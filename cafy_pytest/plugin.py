@@ -908,6 +908,11 @@ class EmailReport(object):
         self.cafypdb_user_action = ''
         self.first_failure_detected = False
         self.first_failed_testcase_name = None
+        self.teardown_reporting_cases = 0
+        self.teardown_reporting_total_seconds = 0.0
+        self.teardown_reporting_parse_seconds = 0.0
+        self.teardown_reporting_render_seconds = 0.0
+        self.teardown_reporting_attach_seconds = 0.0
 
     def _sendemail(self):
         print("\nSending Summary Email to %s" % self.email_addr_list)
@@ -1114,13 +1119,24 @@ class EmailReport(object):
         result = report.get_result()
 
         if call.when == "teardown":
+            teardown_report_start = time.perf_counter()
+            stdout_html = None
+            stdout_size = len(result.capstdout.encode("utf-8", errors="ignore"))
+            testcase_name = self.get_test_name(result.nodeid)
+            parse_elapsed = 0.0
+            render_elapsed = 0.0
+            attach_elapsed = 0.0
+            self.log.info(
+                "Teardown reporting start for %s: capstdout_bytes=%s",
+                testcase_name,
+                stdout_size,
+            )
             if self.config_option.testlog_attachment:
-                stdout_html = None
+                pass
             else:
-                stdout_html = self._convert_to_html(result.capstdout)
+                self.log.info("Teardown reporting HTML generation enabled for %s", testcase_name)
             try:
                 if self.reg_dict:
-                    testcase_name =  self.get_test_name(result.nodeid)
                     test_class = result.nodeid.split('::')[1]
                     reg_id = self.reg_dict.get('reg_id')
                     if (test_class not in self.analyzer_testcase.keys()) or self.analyzer_testcase.get(test_class) == 1:
@@ -1138,20 +1154,47 @@ class EmailReport(object):
                         self.log.info('Analyzer Status is {}'.format(analyzer_status))
                     else:
                         self.log.info('Analyzer is not invoked as testcase failed in setup')
-                if  not self.config_option.testlog_attachment:
-                    stdout_html = self._convert_to_html(result.capstdout)
+                if not self.config_option.testlog_attachment:
+                    parse_start = time.perf_counter()
                     all_log_groupings = self._parse_all_log(result.capstdout.split('\n'))
+                    parse_elapsed = time.perf_counter() - parse_start
+                    self.log.info(
+                        "Teardown reporting log parse for %s took %.3fs",
+                        testcase_name,
+                        parse_elapsed,
+                    )
                     template_file_name = os.path.join(self.CURRENT_DIR,
                                             "resources/all_log_template.html")
+                    render_start = time.perf_counter()
                     with open(template_file_name) as html_src:
                         html_template = html_src.read()
                         template = Template(html_template)
                     stdout_html = template.render(log_groupings = all_log_groupings)
+                    render_elapsed = time.perf_counter() - render_start
+                    self.log.info(
+                        "Teardown reporting template render for %s took %.3fs",
+                        testcase_name,
+                        render_elapsed,
+                    )
             except Exception as e:
                 self.log.warning("Error while adding html filters to test_log {}".format(e))
             finally:
+                attach_start = time.perf_counter()
                 if stdout_html is not None:
                     allure.attach(stdout_html, 'test_log','text/html')
+                attach_elapsed = time.perf_counter() - attach_start
+                total_elapsed = time.perf_counter() - teardown_report_start
+                self.teardown_reporting_cases += 1
+                self.teardown_reporting_total_seconds += total_elapsed
+                self.teardown_reporting_parse_seconds += parse_elapsed
+                self.teardown_reporting_render_seconds += render_elapsed
+                self.teardown_reporting_attach_seconds += attach_elapsed
+                self.log.info(
+                    "Teardown reporting attachment handling for %s took %.3fs; total teardown reporting %.3fs",
+                    testcase_name,
+                    attach_elapsed,
+                    total_elapsed,
+                )
 
         if call.when == "call" and Cafy.RunInfo.active_exceptions:
             try:
@@ -2235,6 +2278,14 @@ class EmailReport(object):
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_sessionfinish(self):
+        self.log.info(
+            "Cumulative teardown reporting across %s testcases: total=%.3fs parse=%.3fs render=%.3fs attach=%.3fs",
+            self.teardown_reporting_cases,
+            self.teardown_reporting_total_seconds,
+            self.teardown_reporting_parse_seconds,
+            self.teardown_reporting_render_seconds,
+            self.teardown_reporting_attach_seconds,
+        )
         test_data_file = os.path.join(CafyLog.work_dir, "testdata.json")
         _CafyConfig.summary["test_data"] = {
             "location": test_data_file
