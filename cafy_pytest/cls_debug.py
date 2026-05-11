@@ -1,3 +1,4 @@
+import logging
 import requests
 import traceback
 from requests.adapters import HTTPAdapter
@@ -7,6 +8,224 @@ import time
 import os
 import sys
 from debug import DebugLibrary
+
+# CLS metadata: prefer ``dirname(work_dir)/debug_activate/`` (e.g. cafy3-run-992489 when
+# CafyLog.work_dir is cafy3-run-992489/2916), else ``work_dir/debug_activate/``.
+CLS_DATA_FILE_JSON = "cls_data_file.json"
+DEBUG_ACTIVATE_SUBDIR = "debug_activate"
+
+_log = logging.getLogger(__name__)
+
+_TRUTHY_STRINGS = frozenset(("1", "true", "yes", "on", "enabled"))
+_FALSEY_STRINGS = frozenset(("0", "false", "no", "off", "disabled", ""))
+
+
+def _normalize_optional_str(value):
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s if s else None
+
+
+def parse_cls_enabled(value, default=0):
+    """
+    Parse CLS flag from os.environ (always strings), JSON, or bool/int.
+    Returns 0 or 1 for compatibility with existing ``CLS == 1`` / ``int(CLS)`` usage.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, int):
+        return 1 if value != 0 else 0
+    s = str(value).strip().lower()
+    if s in _TRUTHY_STRINGS:
+        return 1
+    if s in _FALSEY_STRINGS:
+        return 0
+    try:
+        return 1 if int(s, 10) != 0 else 0
+    except ValueError:
+        return default
+
+
+def parse_logstash_port_value(value):
+    """Return int TCP port or None if unset or invalid."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return int(s, 10)
+    except ValueError:
+        return None
+
+
+def _env_cls_defaults():
+    cls_val = parse_cls_enabled(os.environ.get("CLS", "0"), default=0)
+    cls_host = _normalize_optional_str(os.environ.get("CLS_HOST"))
+    logstash_server = _normalize_optional_str(os.environ.get("LOGSTASH_SERVER"))
+    logstash_port = _normalize_optional_str(os.environ.get("LOGSTASH_PORT"))
+    return cls_val, cls_host, logstash_server, logstash_port
+
+
+def _env_reg_id():
+    return _normalize_optional_str(os.environ.get("REG_ID"))
+
+
+def _cls_data_file_candidates(work_dir):
+    """
+    Paths to try for ``cls_data_file.json``, in order.
+
+    Orchestration often writes under the parent of pytest's per-run folder
+    (e.g. ``.../cafy3-run-992489/debug_activate/`` while ``work_dir`` is
+    ``.../cafy3-run-992489/2916``).
+    """
+    if not work_dir:
+        return []
+    ab = os.path.abspath(work_dir)
+    rel = os.path.join(DEBUG_ACTIVATE_SUBDIR, CLS_DATA_FILE_JSON)
+    out = []
+    parent = os.path.dirname(ab)
+    if parent and parent != ab:
+        out.append(os.path.join(parent, rel))
+    out.append(os.path.join(ab, rel))
+    return out
+
+
+def _cls_data_file_path(work_dir):
+    """First existing ``cls_data_file.json`` path among :func:`_cls_data_file_candidates`, or ``None``."""
+    for path in _cls_data_file_candidates(work_dir):
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _cls_container_ip_port_ready(meta):
+    """
+    True when container IP and port are both set (either lowercase or CLS_* keys)
+    to non-empty values so we can build ``cls_host`` from them; otherwise use
+    ``CLS_HOST`` / ``cls_host`` or env (the prior behavior).
+    """
+    ip = meta.get("cls_container_host_ip")
+    if ip is None:
+        ip = meta.get("CLS_CONTAINER_HOST_IP")
+    port = meta.get("cls_container_host_port")
+    if port is None:
+        port = meta.get("CLS_CONTAINER_HOST_PORT")
+    if not _normalize_optional_str(ip):
+        return False
+    if port is None:
+        return False
+    if isinstance(port, str) and not port.strip():
+        return False
+    return True
+
+
+def _build_cls_host_from_container(meta):
+    """
+    Build CLS host URL from ``cls_container_host_ip`` / ``CLS_CONTAINER_HOST_IP`` and
+    ``cls_container_host_port`` / ``CLS_CONTAINER_HOST_PORT`` (and optional scheme keys).
+    Caller must ensure :func:`_cls_container_ip_port_ready` is true.
+    """
+    ip = meta.get("cls_container_host_ip")
+    if ip is None:
+        ip = meta.get("CLS_CONTAINER_HOST_IP")
+    port = meta.get("cls_container_host_port")
+    if port is None:
+        port = meta.get("CLS_CONTAINER_HOST_PORT")
+    ip = _normalize_optional_str(ip)
+    if not ip:
+        return None
+    scheme = meta.get("cls_scheme") or meta.get("CLS_SCHEME")
+    scheme = _normalize_optional_str(scheme) or "http"
+    port_str = _normalize_optional_str(port) if port is not None else None
+    if not port_str:
+        return "{}://{}".format(scheme, ip)
+    return "{}://{}:{}".format(scheme, ip, port_str)
+
+
+def resolve_cls_configuration(work_dir=None):
+    """
+    Resolve CLS, CLS_HOST, LOGSTASH_SERVER, LOGSTASH_PORT, and REG_ID.
+
+    - Default: read from environment (CLS as string \"true\"/\"false\"/\"1\"/\"0\", etc.).
+    - If ``dirname(work_dir)/debug_activate/cls_data_file.json`` or
+      ``work_dir/debug_activate/cls_data_file.json`` exists (first match wins): for each setting, use the file
+      only when that variable's key(s) are present in the JSON; otherwise keep the env-based value.
+      For ``cls_host``, when the file is used: only if **both** container IP and port are set
+      (``cls_container_host_ip`` or ``CLS_CONTAINER_HOST_IP``, and ``cls_container_host_port``
+      or ``CLS_CONTAINER_HOST_PORT``), build the URL from those keys; otherwise use ``cls_host`` /
+      ``CLS_HOST`` from the file if present, else ``CLS_HOST`` from the environment.
+    - If ``CLS`` / ``cls`` is present in the file and ``REG_ID`` / ``reg_id`` is present in the file,
+      ``REG_ID`` is taken from the file instead of ``os.environ``.
+
+    Returns:
+        tuple: (cls 0|1, cls_host, logstash_server, logstash_port, reg_id)
+        ``logstash_port`` is stored as a string when set (same as os.environ) for backward compatibility.
+        ``reg_id`` matches prior behavior (from ``REG_ID`` env) unless overridden by the file as above.
+    """
+    cls_val, cls_host, logstash_server, logstash_port = _env_cls_defaults()
+    reg_id = _env_reg_id()
+    cls_host_source = "environment (CLS_HOST)" if cls_host else "unset"
+    meta_path = _cls_data_file_path(work_dir)
+    if meta_path and os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fh:
+                meta = json.load(fh)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            _log.warning("CLS could not read cls_data_file %s: %s", meta_path, e)
+            meta = None
+        if isinstance(meta, dict) and meta:
+            if "CLS" in meta or "cls" in meta:
+                raw = meta["CLS"] if "CLS" in meta else meta["cls"]
+                cls_val = parse_cls_enabled(raw, default=cls_val)
+            if "LOGSTASH_SERVER" in meta or "logstash_server" in meta:
+                ls = meta["LOGSTASH_SERVER"] if "LOGSTASH_SERVER" in meta else meta["logstash_server"]
+                logstash_server = _normalize_optional_str(ls)
+            if "LOGSTASH_PORT" in meta or "logstash_port" in meta:
+                lp = meta["LOGSTASH_PORT"] if "LOGSTASH_PORT" in meta else meta["logstash_port"]
+                logstash_port = (
+                    _normalize_optional_str(lp) if lp is not None and str(lp).strip() != "" else None
+                )
+            built = None
+            if _cls_container_ip_port_ready(meta):
+                built = _build_cls_host_from_container(meta)
+            explicit_file_host = None
+            if "CLS_HOST" in meta or "cls_host" in meta:
+                ch = meta["CLS_HOST"] if "CLS_HOST" in meta else meta["cls_host"]
+                explicit_file_host = _normalize_optional_str(ch)
+            if built:
+                cls_host = built
+                cls_host_source = "cls_data_file.json (cls_container_host_ip / CLS_CONTAINER_HOST_IP)"
+            elif explicit_file_host:
+                cls_host = explicit_file_host
+                cls_host_source = "cls_data_file.json (cls_host / CLS_HOST)"
+            else:
+                cls_host_source = "environment (CLS_HOST)" if cls_host else "unset"
+            if ("CLS" in meta or "cls" in meta) and ("REG_ID" in meta or "reg_id" in meta):
+                rid = meta["REG_ID"] if "REG_ID" in meta else meta["reg_id"]
+                reg_id = _normalize_optional_str(rid)
+
+    if not (logstash_port or logstash_server) and cls_val == 1:
+        _log.warning(
+            "CLS disabled: LOGSTASH_SERVER and LOGSTASH_PORT are unset while CLS was enabled"
+        )
+        cls_val = 0
+
+    if cls_host:
+        _log.info("CLS cls_host=%s (source: %s)", cls_host, cls_host_source)
+    else:
+        if cls_val == 1:
+            _log.warning(
+                "CLS cls_host is not set (source: %s) while CLS is enabled",
+                cls_host_source,
+            )
+        else:
+            _log.info("CLS cls_host is not set (source: %s)", cls_host_source)
+
+    return cls_val, cls_host, logstash_server, logstash_port, reg_id
 
 
 def requests_retry(logger, url, method, data=None, files=None,  headers=None, timeout=None, retry_count=5, **kwargs):
@@ -465,7 +684,7 @@ class ClsAdapter:
             params ={
                    "case_name" : test_case
             }
-            self.logger.info(f'Calling cls service (url:{url}) for testcase {test_case}')
+            self.logger.info("CLS case-update: url=%s testcase=%s", url, test_case)
             response = requests_retry(self.logger, url, 'PUT', json=params, timeout=300)
             if response.status_code == 200:
                 self.logger.info("cls notified")
