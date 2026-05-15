@@ -37,6 +37,7 @@ from jinja2 import Template
 from requests.adapters import HTTPAdapter
 from tabulate import tabulate
 from urllib3 import Retry
+from urllib.parse import urlparse
 from _pytest.terminal import TerminalReporter
 from _pytest.runner import runtestprotocol
 
@@ -50,18 +51,16 @@ from .cafy import Cafy
 from .cafy_gta import TimeCollectorPlugin
 from .cafy_pdb import CafyPdb
 from .cafypdb_config import CafyPdb_Configs
+from .cls_debug import resolve_cls_configuration, parse_logstash_port_value
 
 
 collection_setup = Config()
 
-## Environment variable is a string always. This code needs to be imrpoved to string as "true/false"
-CLS = int(os.environ.get("CLS", 0))
-cls_host = os.environ.get("CLS_HOST", None)
-LOGSTASH_SERVER = os.environ.get("LOGSTASH_SERVER", None)
-LOGSTASH_PORT = os.environ.get("LOGSTASH_PORT", None)
-if not (LOGSTASH_PORT or LOGSTASH_SERVER) and CLS ==1 :
-    CLS = 0
+# CLS / logstash / reg_id: env; optional ``dirname(work_dir)/debug_activate/cls_data_file.json``
+# then ``work_dir/debug_activate/cls_data_file.json`` overlays (pytest_configure).
+CLS, cls_host, LOGSTASH_SERVER, LOGSTASH_PORT, CLS_RESOLVED_REG_ID = resolve_cls_configuration(None)
 
+cls_object = None
 
 setattr(pytest,"allure",Cafy)
 
@@ -309,6 +308,21 @@ def is_jsonable(val):
     except:
         return False
 
+
+def _cls_host_hostname(cls_host):
+    """Return hostname or IP from cls_host URL (or host:port form), or None."""
+    if not cls_host:
+        return None
+    s = str(cls_host).strip()
+    if not s:
+        return None
+    try:
+        if "://" not in s:
+            s = "http://%s" % (s,)
+        return urlparse(s).hostname
+    except Exception:
+        return None
+
 def _requests_retry(logger, url, method, data=None, files=None,  headers=None, timeout=None, retry_count=5, **kwargs):
     """ Retry Connection to server and database.
 
@@ -548,23 +562,39 @@ def pytest_configure(config):
             if os.environ.get("hybrid_mode", None):
                 del os.environ["hybrid_mode"]
 
+        # CLS / logstash / reg_id: read again here so cls_data_file.json (parent work_dir or work_dir) is
+        # picked up if orchestration wrote it after work_dir existed or during configure.
+        global CLS, cls_host, LOGSTASH_SERVER, LOGSTASH_PORT, CLS_RESOLVED_REG_ID
+        CLS, cls_host, LOGSTASH_SERVER, LOGSTASH_PORT, CLS_RESOLVED_REG_ID = resolve_cls_configuration(work_dir)
+        _cls_h = _cls_host_hostname(cls_host)
+        _cls_log_line = log if log is not None else CafyLog("cafy")
+        _cls_host_msg = (
+            cls_host if cls_host else "(unset)",
+            _cls_h if _cls_h else ("(unset)" if not cls_host else "(unknown)"),
+        )
+        if CLS and not cls_host:
+            _cls_log_line.warning("CLS cls_host=%s ip=%s", *_cls_host_msg)
+        else:
+            _cls_log_line.info("CLS cls_host=%s ip=%s", *_cls_host_msg)
+
         #Debug Registration Server code
         #Cant introduce switch case as this plugin is common for 3.6 and 3.11 env.
         call_registeration = False
+        _logstash_port_int = parse_logstash_port_value(LOGSTASH_PORT)
         if CLS and not cafykit_debug_enable :
             call_registeration = False
-            reg_id = os.environ.get("REG_ID", None)
+            reg_id = CLS_RESOLVED_REG_ID
             CafyLog.registration_id = reg_id
             CafyLog.logstash_server = LOGSTASH_SERVER
-            CafyLog.logstash_port = int(LOGSTASH_PORT)
+            CafyLog.logstash_port = _logstash_port_int if _logstash_port_int is not None else 0
             #set the debug_server to be NONE.
             CafyLog.debug_server = None
 
         elif CLS and cafykit_debug_enable:
             call_registeration = True
-            reg_id = os.environ.get("REG_ID", None)
+            reg_id = CLS_RESOLVED_REG_ID
             CafyLog.logstash_server = LOGSTASH_SERVER
-            CafyLog.logstash_port = int(LOGSTASH_PORT)
+            CafyLog.logstash_port = _logstash_port_int if _logstash_port_int is not None else 0
             #case where topo file is missing the debug server.
             
         elif not CLS and cafykit_debug_enable:
@@ -580,6 +610,8 @@ def pytest_configure(config):
         if CLS:
             from .cls_debug import ClsAdapter
             global cls_object
+            if log is None:
+                log = CafyLog("cafy")
             cls_object = ClsAdapter(cls_host=cls_host,logger=log,reg_id=reg_id)
         
         reg_dict = {}
@@ -1059,6 +1091,13 @@ class EmailReport(object):
         :param testcase:
         :return:
         '''
+        global CLS, cls_host, LOGSTASH_SERVER, LOGSTASH_PORT, CLS_RESOLVED_REG_ID
+        wd = CafyLog.work_dir
+        if wd and cls_object is not None:
+            CLS, cls_host, LOGSTASH_SERVER, LOGSTASH_PORT, CLS_RESOLVED_REG_ID = resolve_cls_configuration(wd)
+            cls_object.cls_host = cls_host
+        if cls_object is None:
+            return None
         return cls_object.update_cls_testcase(test_case=test_case)
 
     def initiate_analyzer(self, test_case):
