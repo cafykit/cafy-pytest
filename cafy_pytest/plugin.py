@@ -406,7 +406,7 @@ def pytest_configure(config):
     CafyLog.tag_file = config.option.tag_file
     CafyLog.mongomode=config.option.mongo_mode
     CafyLog.giso_dir = config.option.giso_dir
-    script_list = config.option.file_or_dir
+    script_list = getattr(config.option, "file_or_dir", [])
     collection_list = []
     log = None
     for item in config.option.collection:
