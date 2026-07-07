@@ -269,6 +269,61 @@ def is_valid_cafyarg(arg):
     return arg
 
 
+def _normalized_script_args():
+    sa = getattr(CafyLog, 'script_args', None) or {}
+    if sa.get('__nothing__') is not None and len(sa) == 1:
+        return {}
+    return sa
+
+
+def _apply_crft_from_script_args(work_dir):
+    sa = _normalized_script_args()
+    CafyLog.crft = bool(sa.get('crft'))
+    crft_dat_dir = sa.get('crft_dat_dir')
+    if crft_dat_dir:
+        if os.path.isabs(crft_dat_dir):
+            CafyLog.crft_dat_dir = crft_dat_dir
+        elif work_dir:
+            CafyLog.crft_dat_dir = os.path.join(work_dir, crft_dat_dir)
+        else:
+            CafyLog.crft_dat_dir = os.path.abspath(crft_dat_dir)
+    elif work_dir:
+        CafyLog.crft_dat_dir = os.path.join(work_dir, 'crft')
+    else:
+        CafyLog.crft_dat_dir = None
+    CafyLog.crft_connect_handle = sa.get('crft_connect_handle')
+    if CafyLog.crft:
+        log = CafyLog('cafy')
+        log.info('CRFT collection enabled; dat_dir=%s' % CafyLog.crft_dat_dir)
+
+
+def _run_crft_collection(stage):
+    if not getattr(CafyLog, 'crft', False):
+        return
+    log = CafyLog('cafy')
+    if not CafyLog.topology_file:
+        log.error('CRFT enabled but topology file not provided (-T)')
+        return
+    work_dir = CafyLog.crft_dat_dir or CafyLog.work_dir
+    if not work_dir:
+        log.error('CRFT enabled but work_dir not set')
+        return
+    try:
+        from utils.collectors.crft import CrftCollector
+        collector = CrftCollector(
+            topo_file=CafyLog.topology_file,
+            input_file=CafyLog.test_input_file,
+            work_dir=work_dir,
+            stage=stage,
+            connect_handle=getattr(CafyLog, 'crft_connect_handle', None),
+        )
+        collector.run()
+    except ImportError as err:
+        log.error('CRFT collector not available (cafykit): %s' % err)
+    except Exception as err:
+        log.exception('CRFT %s collection failed: %s' % (stage, err))
+
+
 def load_config_file(filename=None):
     config = {}
     # If no file path given the check the following places (in order):
@@ -406,6 +461,9 @@ def pytest_configure(config):
     CafyLog.tag_file = config.option.tag_file
     CafyLog.mongomode=config.option.mongo_mode
     CafyLog.giso_dir = config.option.giso_dir
+    CafyLog.crft = False
+    CafyLog.crft_dat_dir = None
+    CafyLog.crft_connect_handle = None
     script_list = getattr(config.option, "file_or_dir", [])
     collection_list = []
     log = None
@@ -528,6 +586,8 @@ def pytest_configure(config):
                 else:
                     with open(os.path.join(os.path.sep, work_dir, "scriptargs"), "w") as f:
                         f.write(temp_arg)
+
+        _apply_crft_from_script_args(work_dir)
 
         #Copy junitxml file name to workdir if --junitxml option is provided
         if config.option.xmlpath:
@@ -664,6 +724,12 @@ def pytest_configure(config):
         reporter.write_line("CLS Enabled: %s" % CLS)
         reporter.write_line("Debug Engine Enabled: %s" % cafykit_debug_enable)
         reporter.write_line("Registration Id: %s" % CafyLog.registration_id)
+        if CafyLog.crft:
+            reporter.write_line("CRFT collection enabled; dat_dir=%s" % CafyLog.crft_dat_dir)
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_sessionstart(session):
+    _run_crft_collection('start')
 
 def pytest_unconfigure(config):
     email = getattr(config, '_email', None)
@@ -2352,6 +2418,8 @@ class EmailReport(object):
         summary_file = os.path.join(self.archive,"summary.json")
         with open(summary_file, 'w') as outfile:
             json.dump(_CafyConfig.summary, outfile, indent=4, sort_keys=True)
+
+        _run_crft_collection('end')
 
         if self.collection:
             self.collection_manager.deconfigure()
