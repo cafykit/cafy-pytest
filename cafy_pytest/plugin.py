@@ -269,18 +269,24 @@ def is_valid_cafyarg(arg):
     return arg
 
 
-def _normalized_script_args():
-    sa = getattr(CafyLog, 'script_args', None) or {}
-    if sa.get('__nothing__') is not None and len(sa) == 1:
-        return {}
-    return sa
+def _env_truthy(name):
+    """True when env var is set to 1, true, yes, or on (case-insensitive)."""
+    val = os.environ.get(name)
+    if val is None or val == '':
+        return False
+    return val.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _apply_crft_from_script_args(work_dir):
-    sa = _normalized_script_args()
-    CafyLog.crft = bool(sa.get('crft'))
-    crft_dat_dir = sa.get('crft_dat_dir')
+def _apply_crft_from_env(work_dir):
+    """
+    Enable CRFT from environment (not script-args):
+      crft_enable=1
+      crft_dat_dir=/path/to/crft
+    """
+    CafyLog.crft = _env_truthy('crft_enable')
+    crft_dat_dir = os.environ.get('crft_dat_dir')
     if crft_dat_dir:
+        crft_dat_dir = crft_dat_dir.strip()
         if os.path.isabs(crft_dat_dir):
             CafyLog.crft_dat_dir = crft_dat_dir
         elif work_dir:
@@ -291,7 +297,7 @@ def _apply_crft_from_script_args(work_dir):
         CafyLog.crft_dat_dir = os.path.join(work_dir, 'crft')
     else:
         CafyLog.crft_dat_dir = None
-    CafyLog.crft_connect_handle = sa.get('crft_connect_handle')
+    CafyLog.crft_connect_handle = None
     if CafyLog.crft:
         log = CafyLog('cafy')
         log.info('CRFT collection enabled; dat_dir=%s' % CafyLog.crft_dat_dir)
@@ -587,7 +593,7 @@ def pytest_configure(config):
                     with open(os.path.join(os.path.sep, work_dir, "scriptargs"), "w") as f:
                         f.write(temp_arg)
 
-        _apply_crft_from_script_args(work_dir)
+        _apply_crft_from_env(work_dir)
 
         #Copy junitxml file name to workdir if --junitxml option is provided
         if config.option.xmlpath:
