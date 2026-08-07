@@ -7,7 +7,11 @@ import json
 import time
 import os
 import sys
-from debug import DebugLibrary
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 # CLS metadata: prefer ``dirname(work_dir)/debug_activate/`` (e.g. cafy3-run-992489 when
 # CafyLog.work_dir is cafy3-run-992489/2916), else ``work_dir/debug_activate/``.
@@ -18,6 +22,229 @@ _log = logging.getLogger(__name__)
 
 _TRUTHY_STRINGS = frozenset(("1", "true", "yes", "on", "enabled"))
 _FALSEY_STRINGS = frozenset(("0", "false", "no", "off", "disabled", ""))
+
+DEFAULT_CLIENT_SNAPSHOT_TIMEOUT = 2700
+DEFAULT_ROUTER_SNAPSHOT_TIMEOUT = 2400
+ROUTER_SNAPSHOT_TIMEOUT_BUFFER = 300
+DEFAULT_CLIENT_COLLECTION_POLL_TIMEOUT = 900
+
+_COLLECTOR_OPTION_KEYS = (
+    'snapshot_timeout',
+    'process_mem_collection',
+    'collection_timeout',
+)
+
+
+def _parse_collector_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    normalized = str(value).strip().lower()
+    if normalized in _TRUTHY_STRINGS:
+        return True
+    if normalized in _FALSEY_STRINGS:
+        return False
+    return default
+
+
+def _collector_block_from_input_file(debug_file):
+    if not debug_file or not os.path.isfile(debug_file):
+        return {}
+    try:
+        with open(debug_file, 'r', encoding='utf-8') as handle:
+            input_dict = json.load(handle)
+    except (OSError, ValueError, json.JSONDecodeError) as err:
+        _log.warning(
+            "Could not read Collector settings from input file %s: %s",
+            debug_file,
+            err,
+        )
+        return {}
+    test_args = input_dict.get('TestArguments', {})
+    if not isinstance(test_args, dict):
+        test_args = {}
+    debug_configuration = test_args.get('debug_configuration', {})
+    if not isinstance(debug_configuration, dict):
+        debug_configuration = {}
+    collector = debug_configuration.get('Collector', {})
+    return collector if isinstance(collector, dict) else {}
+
+
+def _load_script_args_dict(script_args=None):
+    """
+    Normalize CafyLog.script_args to a dict.
+
+    script-args may be an inline dict (from --script-args YAML) or a path to a
+    YAML/JSON file.
+    """
+    if script_args is None:
+        try:
+            from logger.cafylog import CafyLog
+            script_args = CafyLog.script_args
+        except Exception:
+            return {}
+
+    if not script_args:
+        return {}
+    if isinstance(script_args, dict):
+        if script_args == {'__nothing__': None}:
+            return {}
+        if '__nothing__' in script_args and len(script_args) == 1:
+            return {}
+        return script_args
+    if isinstance(script_args, str):
+        stripped = script_args.strip()
+        if not stripped or stripped in ('{}', "{}"):
+            return {}
+        if not os.path.isfile(script_args):
+            return {}
+        try:
+            with open(script_args, 'r', encoding='utf-8') as handle:
+                content = handle.read()
+        except OSError as err:
+            _log.warning("Could not read script-args file %s: %s", script_args, err)
+            return {}
+        try:
+            data = json.loads(content)
+        except (ValueError, json.JSONDecodeError):
+            if yaml is None:
+                _log.warning(
+                    "Could not parse script-args file %s as JSON and PyYAML is unavailable",
+                    script_args,
+                )
+                return {}
+            try:
+                data = yaml.safe_load(content)
+            except yaml.YAMLError as err:
+                _log.warning(
+                    "Could not parse script-args file %s: %s",
+                    script_args,
+                    err,
+                )
+                return {}
+        return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _collector_block_from_script_args(script_args=None):
+    """
+    Extract Collector keys from flat script-args or nested input shape.
+
+    Supported flat keys: snapshot_timeout, process_mem_collection,
+    collection_timeout.
+    """
+    script_dict = _load_script_args_dict(script_args)
+    if not script_dict:
+        return {}
+
+    collector = {}
+    for key in _COLLECTOR_OPTION_KEYS:
+        if key in script_dict:
+            collector[key] = script_dict[key]
+
+    test_args = script_dict.get('TestArguments', {})
+    if isinstance(test_args, dict):
+        debug_configuration = test_args.get('debug_configuration', {})
+        if isinstance(debug_configuration, dict):
+            nested = debug_configuration.get('Collector', {})
+            if isinstance(nested, dict):
+                for key in _COLLECTOR_OPTION_KEYS:
+                    if key in nested and key not in collector:
+                        collector[key] = nested[key]
+    return collector
+
+
+def _apply_snapshot_timeout(raw_timeout):
+    client_timeout = DEFAULT_CLIENT_SNAPSHOT_TIMEOUT
+    if raw_timeout is None:
+        return client_timeout
+    try:
+        configured_timeout = int(raw_timeout)
+        if configured_timeout > DEFAULT_CLIENT_SNAPSHOT_TIMEOUT:
+            client_timeout = configured_timeout
+    except (TypeError, ValueError):
+        _log.warning(
+            "Ignoring invalid snapshot_timeout value: %s",
+            raw_timeout,
+        )
+    return client_timeout
+
+
+def resolve_snapshot_collector_options_from_input(debug_file=None, script_args=None):
+    """
+    Resolve snapshot client timeout, router timeout (log only), and process-mem flag.
+
+    Values are read from --script-args first, then the test input file
+    (TestArguments.debug_configuration.Collector). Missing or invalid sources
+    fall back to defaults without failing pytest configure.
+
+    Client timeout defaults to 2700s and only increases when snapshot_timeout
+    is configured above 2700. Router timeout is derived for logging only;
+    the collector recomputes it when running snapshot collect on the device.
+    """
+    input_collector = _collector_block_from_input_file(debug_file)
+    script_collector = _collector_block_from_script_args(script_args)
+
+    raw_timeout = script_collector.get('snapshot_timeout')
+    if raw_timeout is None:
+        raw_timeout = input_collector.get('snapshot_timeout')
+
+    raw_process_mem = script_collector.get('process_mem_collection')
+    if raw_process_mem is None:
+        raw_process_mem = input_collector.get('process_mem_collection')
+
+    client_timeout = _apply_snapshot_timeout(raw_timeout)
+
+    if client_timeout > DEFAULT_CLIENT_SNAPSHOT_TIMEOUT:
+        router_timeout = client_timeout - ROUTER_SNAPSHOT_TIMEOUT_BUFFER
+    else:
+        router_timeout = DEFAULT_ROUTER_SNAPSHOT_TIMEOUT
+
+    process_mem = _parse_collector_bool(raw_process_mem, default=False)
+    return client_timeout, router_timeout, process_mem
+
+
+def _parse_positive_int_timeout(raw_timeout):
+    if raw_timeout is None:
+        return None
+    try:
+        configured = int(raw_timeout)
+        if configured > 0:
+            return configured
+    except (TypeError, ValueError):
+        _log.warning(
+            "Ignoring invalid collection_timeout value: %s",
+            raw_timeout,
+        )
+    return None
+
+
+def resolve_collection_collector_options_from_input(debug_file=None, script_args=None):
+    """
+    Resolve collection_timeout for startdebug/v1 client poll and API pass-through.
+
+    Values are read from --script-args first, then the test input file
+    (TestArguments.debug_configuration.Collector). When unset, returns
+    (None, DEFAULT_CLIENT_COLLECTION_POLL_TIMEOUT) so pytest keeps the legacy
+    900s poll budget while the collector uses its own default PAM wait.
+    """
+    input_collector = _collector_block_from_input_file(debug_file)
+    script_collector = _collector_block_from_script_args(script_args)
+
+    raw_timeout = script_collector.get('collection_timeout')
+    if raw_timeout is None:
+        raw_timeout = input_collector.get('collection_timeout')
+
+    collection_timeout = _parse_positive_int_timeout(raw_timeout)
+    poll_timeout = (
+        collection_timeout
+        if collection_timeout is not None
+        else DEFAULT_CLIENT_COLLECTION_POLL_TIMEOUT
+    )
+    return collection_timeout, poll_timeout
 
 
 def _normalize_optional_str(value):
@@ -310,6 +537,13 @@ class DebugAdapter:
         self.debug_file = kwargs.get('debug_file', None)
         self.topo_file= kwargs.get('topo_file',None)
         self.test_name = kwargs.get("test_name", None)
+        self._script_args = kwargs.get('script_args')
+        if self._script_args is None:
+            try:
+                from logger.cafylog import CafyLog
+                self._script_args = CafyLog.script_args
+            except Exception:
+                self._script_args = None
         self.logger = kwargs.get('logger', None)
         if not self.logger:
             import logging
@@ -320,6 +554,33 @@ class DebugAdapter:
             log_handler.setFormatter(log_formatter)
             # log_handler.setLevel('debug')
             self.logger.addHandler(log_handler)
+
+        (
+            self.snapshot_timeout,
+            self.router_snapshot_timeout,
+            self.process_mem_collection,
+        ) = resolve_snapshot_collector_options_from_input(
+            debug_file=self.debug_file,
+            script_args=self._script_args,
+        )
+        (
+            self.collection_timeout,
+            self.collection_poll_timeout,
+        ) = resolve_collection_collector_options_from_input(
+            debug_file=self.debug_file,
+            script_args=self._script_args,
+        )
+        self.logger.info(
+            "Snapshot collector options: client_timeout=%ss router_timeout=%ss process_mem_collection=%s",
+            self.snapshot_timeout,
+            self.router_snapshot_timeout,
+            self.process_mem_collection,
+        )
+        self.logger.info(
+            "Collection options: collection_timeout=%s poll_timeout=%ss",
+            self.collection_timeout,
+            self.collection_poll_timeout,
+        )
     
     def register_test(self):
         """
@@ -483,15 +744,39 @@ class DebugAdapter:
             return None
         else:
             url = f'http://{self.debug_server}:5001/startdebug/v1/'
+            debug_params = dict(params)
+            if self.collection_timeout is not None:
+                debug_params['collection_timeout'] = self.collection_timeout
+            poll_timeout = self.collection_poll_timeout
             try:
-                self.logger.info(f'Calling registration service (url:{url}) to start collecting')
-                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=1500)
+                self.logger.info(
+                    'Calling registration service (url:%s) to start collecting '
+                    '(collection_timeout=%ss, poll_timeout=%ss)',
+                    url,
+                    self.collection_timeout,
+                    poll_timeout,
+                )
+                response = requests_retry(
+                    self.logger,
+                    url,
+                    'POST',
+                    json=debug_params,
+                    headers=headers,
+                    timeout=poll_timeout,
+                )
                 if response.status_code == 200:
                     waiting_time = 0
                     poll_flag = True
                     while(poll_flag):
                         url_status = f'http://{self.debug_server}:5001/collectionstatus/'
-                        response = requests_retry(self.logger, url_status, 'POST', json=params, headers=headers, timeout=30)
+                        response = requests_retry(
+                            self.logger,
+                            url_status,
+                            'POST',
+                            json=debug_params,
+                            headers=headers,
+                            timeout=30,
+                        )
                         if response.status_code == 200:
                             message = response.json()
                             if message["collector_status"] == True:
@@ -499,7 +784,7 @@ class DebugAdapter:
                             else:
                                 time.sleep(30)
                                 waiting_time = waiting_time + 30
-                                if waiting_time > 900:
+                                if waiting_time > poll_timeout:
                                     poll_flag = False
                         else:
                             poll_flag = False
@@ -529,17 +814,41 @@ class DebugAdapter:
             self.logger.info("debug_server name not provided in topo file")
             return None
         else:
+            snapshot_params = dict(params)
+            snapshot_params['snapshot_timeout'] = self.snapshot_timeout
+            snapshot_params['process_mem_collection'] = self.process_mem_collection
+            poll_timeout = self.snapshot_timeout
             url = f'http://{self.debug_server}:5001/startsnapshot/'
             try:
-                self.logger.info(f'Calling registration service (url:{url}) to start collecting')
-                response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=2700)
+                self.logger.info(
+                    'Calling registration service (url:%s) to start collecting '
+                    '(snapshot_timeout=%ss, process_mem_collection=%s)',
+                    url,
+                    poll_timeout,
+                    self.process_mem_collection,
+                )
+                response = requests_retry(
+                    self.logger,
+                    url,
+                    'POST',
+                    json=snapshot_params,
+                    headers=headers,
+                    timeout=poll_timeout,
+                )
                 if response.status_code == 200:
                     waiting_time = 0
                     poll_flag = True
                     while(poll_flag):
                         # Changed from /collectionstatus/ to /snapshotstatus/ as requested
                         url_status = f'http://{self.debug_server}:5001/snapshotstatus/'
-                        response = requests_retry(self.logger, url_status, 'POST', json=params, headers=headers, timeout=30)
+                        response = requests_retry(
+                            self.logger,
+                            url_status,
+                            'POST',
+                            json=snapshot_params,
+                            headers=headers,
+                            timeout=30,
+                        )
                         if response.status_code == 200:
                             message = response.json()
                             if message["snapshot_status"] == True: # Assuming "collector_status" key remains relevant for snapshot status
@@ -547,7 +856,7 @@ class DebugAdapter:
                             else:
                                 time.sleep(90)
                                 waiting_time = waiting_time + 90
-                                if waiting_time > 2700:
+                                if waiting_time > poll_timeout:
                                     poll_flag = False
                         else:
                             poll_flag = False
@@ -641,8 +950,11 @@ class DebugAdapter:
                         with open(collector_log_file_full_path, 'w') as f:
                             f.write(response.text)
                         try:
-                            DebugLibrary.convert_collector_logs_to_json(collector_log_file_full_path)
-                        except:
+                            from debug import DebugLibrary
+                            DebugLibrary.convert_collector_logs_to_json(
+                                collector_log_file_full_path
+                            )
+                        except Exception:
                             self.logger.info("Failed to convert collector logs to json")
                     else:
                         self.logger.info("No collector log file received")
