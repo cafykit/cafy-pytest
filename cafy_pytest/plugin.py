@@ -13,6 +13,7 @@ import shutil
 import signal
 import smtplib
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -88,6 +89,62 @@ if CAFY_REPO is None and "GIT_REPO" in os.environ:
         pytest.exit(f'GIT_REPO has not been set to correct repo.')
 if CAFY_REPO:
     os.environ["CAFY_REPO"] = CAFY_REPO
+
+_CAFY_XR_GIT_COMMIT_AT_START = None
+
+
+def _get_cafy_xr_git_commit(repo_path):
+    """Return the checked-out commit for the repository containing repo_path."""
+    if not repo_path:
+        return None
+
+    resolved_repo_path = os.path.realpath(repo_path)
+    output = subprocess.check_output(
+        ["git", "-C", resolved_repo_path, "rev-parse", "--verify", "HEAD^{commit}"],
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+        timeout=10,
+    )
+    return output.strip()
+
+
+def _record_cafy_xr_git_commit(log):
+    """Record the startup commit without preventing existing jobs from running."""
+    global _CAFY_XR_GIT_COMMIT_AT_START
+
+    _CAFY_XR_GIT_COMMIT_AT_START = None
+    os.environ.pop("CAFY_XR_GIT_COMMIT", None)
+    try:
+        commit = _get_cafy_xr_git_commit(CAFY_REPO)
+        if not commit:
+            raise ValueError("Git returned an empty commit")
+        _CAFY_XR_GIT_COMMIT_AT_START = commit
+        os.environ["CAFY_XR_GIT_COMMIT"] = commit
+        log.info("CAFY XR Git commit at test startup: %s" % commit)
+    except Exception as error:
+        log.warning("Unable to determine CAFY XR Git commit at test startup: %s" % error)
+
+
+def _log_cafy_xr_git_commit_drift(log):
+    """Log whether the shared XR checkout changed during the test session."""
+    if not _CAFY_XR_GIT_COMMIT_AT_START:
+        return
+
+    try:
+        current_commit = _get_cafy_xr_git_commit(CAFY_REPO)
+        if not current_commit:
+            raise ValueError("Git returned an empty commit")
+    except Exception as error:
+        log.warning("Unable to determine CAFY XR Git commit at test teardown: %s" % error)
+        return
+
+    if current_commit != _CAFY_XR_GIT_COMMIT_AT_START:
+        log.warning(
+            "CAFY XR Git commit changed during test execution: startup=%s, teardown=%s"
+            % (_CAFY_XR_GIT_COMMIT_AT_START, current_commit)
+        )
+    else:
+        log.info("CAFY XR Git commit unchanged during test execution: %s" % current_commit)
 
 
 cafy_args = os.environ.get('CAFY_ARGS')
@@ -517,6 +574,9 @@ def pytest_configure(config):
         #Set CafyLog.work_dir option for all.log
         CafyLog.work_dir = work_dir
         _setup_env()
+
+        log = CafyLog("cafy")
+        _record_cafy_xr_git_commit(log)
 
         config.option.allure_report_dir=os.path.join(CafyLog.work_dir,"allure")
         #Copy topology-file if given to work_dir
@@ -1039,10 +1099,26 @@ class EmailReport(object):
         msg.add_header('Content-Type', 'text/html')
         # fixme: add an option to read config from file rather then CLI
         with smtplib.SMTP(self.smtp_server, self.smtp_port,timeout=60) as mail_server:
+            mail_server.ehlo()
+            starttls_available = mail_server.has_extn("starttls")
+
+            tls_enabled = False
+            if starttls_available:
+                tls_context = ssl.create_default_context()
+                tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
+                mail_server.starttls(context=tls_context)
+                mail_server.ehlo()
+                tls_enabled = True
+            elif str(self.smtp_server).lower().rstrip('.') == "outbound.cisco.com":
+                raise smtplib.SMTPNotSupportedError(
+                    "outbound.cisco.com requires STARTTLS"
+                )
+
             if self.email_from_passwd:
-                mail_server.ehlo()
-                mail_server.starttls()
-                mail_server.ehlo()
+                if not tls_enabled:
+                    raise smtplib.SMTPNotSupportedError(
+                        "SMTP authentication requires an encrypted TLS connection"
+                    )
                 mail_server.login(self.email_from, self.email_from_passwd)
             mail_server.send_message(msg)
 
@@ -2397,6 +2473,9 @@ class EmailReport(object):
             self.teardown_reporting_render_seconds,
             self.teardown_reporting_attach_seconds,
         )
+        if _CAFY_XR_GIT_COMMIT_AT_START:
+            _log_cafy_xr_git_commit_drift(self.log)
+
         test_data_file = os.path.join(CafyLog.work_dir, "testdata.json")
         _CafyConfig.summary["test_data"] = {
             "location": test_data_file
