@@ -101,7 +101,7 @@ def _get_cafy_xr_git_commit(repo_path):
     resolved_repo_path = os.path.realpath(repo_path)
     output = subprocess.check_output(
         ["git", "-C", resolved_repo_path, "rev-parse", "--verify", "HEAD^{commit}"],
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.DEVNULL,
         universal_newlines=True,
         timeout=10,
     )
