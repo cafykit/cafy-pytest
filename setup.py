@@ -25,6 +25,13 @@ setup(
         'urllib3',
         'validators',
     ],
+    extras_require={
+        'netpilot-similarity': [
+            'faiss-cpu',
+            'numpy',
+            'sentence-transformers',
+        ],
+    },
     # the following makes a plugin available to pytest
     entry_points={
         'pytest11': ['cafy_pytest = cafy_pytest.plugin']
