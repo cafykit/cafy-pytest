@@ -93,18 +93,47 @@ if CAFY_REPO:
 _CAFY_XR_GIT_COMMIT_AT_START = None
 
 
+def _find_git_worktree_root(repo_path):
+    """Find the worktree root without asking Git to inspect the repository."""
+    current_path = os.path.realpath(repo_path)
+    while True:
+        if os.path.exists(os.path.join(current_path, ".git")):
+            return current_path
+        parent_path = os.path.dirname(current_path)
+        if parent_path == current_path:
+            return None
+        current_path = parent_path
+
+
 def _get_cafy_xr_git_commit(repo_path):
     """Return the checked-out commit for the repository containing repo_path."""
     if not repo_path:
         return None
 
     resolved_repo_path = os.path.realpath(repo_path)
-    output = subprocess.check_output(
-        ["git", "-C", resolved_repo_path, "rev-parse", "--verify", "HEAD^{commit}"],
-        stderr=subprocess.DEVNULL,
-        universal_newlines=True,
-        timeout=10,
+    git_worktree_root = _find_git_worktree_root(resolved_repo_path)
+    git_command = ["git"]
+    if git_worktree_root:
+        # The XR checkout is shared and can be owned by the user who started
+        # the job, while pytest may run as cafyops.  Trust only this checkout
+        # for this read; do not modify cafyops' global Git configuration.
+        git_command.extend(["-c", "safe.directory=%s" % git_worktree_root])
+    git_command.extend(
+        ["-C", resolved_repo_path, "rev-parse", "--verify", "HEAD^{commit}"]
     )
+    try:
+        output = subprocess.check_output(
+            git_command,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=10,
+        )
+    except subprocess.CalledProcessError as error:
+        error_message = "Git commit lookup failed (exit status %s)" % error.returncode
+        git_error = getattr(error, "stderr", None)
+        if git_error:
+            error_message += ": %s" % git_error.strip()
+        raise RuntimeError(error_message)
     return output.strip()
 
 
@@ -115,9 +144,15 @@ def _record_cafy_xr_git_commit(log):
     _CAFY_XR_GIT_COMMIT_AT_START = None
     os.environ.pop("CAFY_XR_GIT_COMMIT", None)
     try:
+        if not CAFY_REPO:
+            raise ValueError(
+                "CAFY_REPO is not configured; set CAFYAP_REPO, CAFYKIT_HOME, or GIT_REPO"
+            )
         commit = _get_cafy_xr_git_commit(CAFY_REPO)
         if not commit:
-            raise ValueError("Git returned an empty commit")
+            raise ValueError(
+                "Git returned an empty commit for repository %s" % CAFY_REPO
+            )
         _CAFY_XR_GIT_COMMIT_AT_START = commit
         os.environ["CAFY_XR_GIT_COMMIT"] = commit
         log.info("CAFY XR Git commit at test startup: %s" % commit)
