@@ -1,6 +1,9 @@
 import logging
 import requests
 import traceback
+import re
+import tempfile
+from email.message import Message
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry, request
 import json
@@ -27,6 +30,27 @@ DEFAULT_CLIENT_SNAPSHOT_TIMEOUT = 2700
 DEFAULT_ROUTER_SNAPSHOT_TIMEOUT = 2400
 ROUTER_SNAPSHOT_TIMEOUT_BUFFER = 300
 DEFAULT_CLIENT_COLLECTION_POLL_TIMEOUT = 900
+
+COLLECTOR_ARTIFACTS_HEADER = "X-Collector-Artifacts"
+COLLECTOR_ARTIFACT_TYPE_HEADER = "X-Collector-Artifact-Type"
+MAX_COLLECTOR_ARTIFACTS = 32
+_COLLECTOR_ARTIFACT_TYPE_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+)
+
+ANALYZER_ARTIFACTS_HEADER = "X-Analyzer-Artifacts"
+ANALYZER_ARTIFACT_TYPE_HEADER = "X-Analyzer-Artifact"
+ANALYZER_SUMMARY_SUPPORTED_HEADER = "X-Syslog-Summary-Supported"
+MAX_ANALYZER_ARTIFACTS = 32
+_ANALYZER_ARTIFACT_TYPE_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+)
+_CURRENT_OPTIONAL_ANALYZER_ARTIFACTS = ("summary",)
+
+# Match the permissions used by the legacy Collector log/JSON files.  Artifact
+# downloads first use a secure temporary file (0600), so the mode must be
+# adjusted explicitly before the atomic rename into the work directory.
+DOWNLOADED_ARTIFACT_MODE = 0o666
 
 _COLLECTOR_OPTION_KEYS = (
     'snapshot_timeout',
@@ -899,30 +923,469 @@ class DebugAdapter:
                 self.logger.warning(f'Http call to root cause service url:{url} is not successful')
                 return None
 
-    def analyzer_log(self, work_dir:str):
-        """_summary_
+    @staticmethod
+    def _safe_analyzer_registration_id(reg_id):
+        """Return the filename-safe registration ID used by Analyzer."""
+        safe_reg_id = re.sub(
+            r"[^A-Za-z0-9_.-]+", "_", str(reg_id)
+        ).strip("._")
+        return safe_reg_id or "unknown_registration"
 
-        Args:
-            work_dir (string): _description_
-        """
-        params = {"reg_id": self.registeration_id,
-                  "debug_server_name": self.debug_server}
-        url = f'http://{self.debug_server}:5001/get_analyzer_log/'
+    def _set_downloaded_artifact_permissions(self, artifact_path):
+        """Best-effort permission update for a completed artifact download."""
         try:
-            response = requests_retry(self.logger, url, 'GET', data=params, timeout=300)
-            if response is not None and response.status_code == 200:
-                if response.text:
-                    if 'Content-Disposition' in response.headers:
-                        analyzer_log_filename = response.headers['Content-Disposition'].split('filename=')[-1]
-                        analyzer_log_file_full_path = os.path.join(work_dir, analyzer_log_filename)
-                        with open(analyzer_log_file_full_path, 'w') as f:
-                            f.write(response.text)
-                            self.logger.info(f'{analyzer_log_filename} saved at {work_dir}')
-                    else:
-                        self.logger.info("No analyzer log file received")
-        except Exception as e:
-            self.logger.warning(f'Error {e}')
-            self.logger.info('No Analyzer log file receiver')
+            os.chmod(artifact_path, DOWNLOADED_ARTIFACT_MODE)
+        except OSError as err:
+            # Permission normalization must never prevent delivery of an
+            # otherwise valid Analyzer or Collector artifact.
+            self.logger.warning(
+                "Unable to set downloaded artifact permissions on %s to %04o: "
+                "%s; continuing with existing permissions",
+                artifact_path,
+                DOWNLOADED_ARTIFACT_MODE,
+                err,
+            )
+
+    def _analyzer_artifact_filename(self, response, artifact_type):
+        """Return a safe local filename for an Analyzer response."""
+        safe_reg_id = self._safe_analyzer_registration_id(
+            self.registeration_id
+        )
+        if artifact_type == 'summary':
+            return '{}_syslog_analysis_summary.json'.format(safe_reg_id)
+
+        disposition = response.headers.get('Content-Disposition', '')
+        filename = None
+        if disposition:
+            message = Message()
+            message['content-disposition'] = disposition
+            filename = message.get_filename()
+        if filename:
+            filename = str(filename).strip()
+            if (filename in ('.', '..') or '/' in filename or
+                    '\\' in filename or
+                    os.path.basename(filename) != filename):
+                self.logger.warning(
+                    "Ignoring unsafe Analyzer artifact filename %r",
+                    filename,
+                )
+                filename = None
+        if filename:
+            return filename
+        if artifact_type == 'log':
+            return '{}_analyzer.log'.format(safe_reg_id)
+        return '{}_{}'.format(safe_reg_id, artifact_type)
+
+    def _validate_analyzer_summary(self, summary_path):
+        """Validate that an optional response is this run's JSON summary."""
+        with open(summary_path, 'r', encoding='utf-8') as summary_file:
+            summary = json.load(summary_file)
+        if not isinstance(summary, dict):
+            raise ValueError("Syslog summary is not a JSON object")
+        if str(summary.get('reg_id')) != str(self.registeration_id):
+            raise ValueError(
+                "Syslog summary registration ID does not match"
+            )
+        summary_markers = (
+            'syslog_analysis',
+            'crash_summary',
+            'traceback_summary',
+            'schema_version',
+            'analysis_status',
+        )
+        if not any(marker in summary for marker in summary_markers):
+            raise ValueError(
+                "Response is not a recognized syslog summary"
+            )
+
+    def _advertised_analyzer_artifacts(self, response_headers):
+        """Discover safe optional artifacts from current and future servers."""
+        artifact_header = response_headers.get(ANALYZER_ARTIFACTS_HEADER)
+        if artifact_header is not None:
+            raw_header = str(artifact_header).strip()
+            artifact_values = None
+            if raw_header.startswith('['):
+                try:
+                    decoded = json.loads(raw_header)
+                    if isinstance(decoded, list):
+                        artifact_values = decoded
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    artifact_values = None
+            if artifact_values is None:
+                artifact_values = raw_header.split(',') if raw_header else []
+
+            artifacts = []
+            seen = set()
+            for value in artifact_values:
+                artifact_type = str(value).strip().lower()
+                if artifact_type == 'log' or artifact_type in seen:
+                    continue
+                if not _ANALYZER_ARTIFACT_TYPE_RE.fullmatch(
+                        artifact_type):
+                    self.logger.warning(
+                        "Ignoring invalid Analyzer artifact identifier %r",
+                        artifact_type,
+                    )
+                    continue
+                artifacts.append(artifact_type)
+                seen.add(artifact_type)
+                if len(artifacts) >= MAX_ANALYZER_ARTIFACTS:
+                    self.logger.warning(
+                        "Ignoring Analyzer artifacts beyond the limit of %s",
+                        MAX_ANALYZER_ARTIFACTS,
+                    )
+                    break
+            return artifacts
+
+        summary_supported = response_headers.get(
+            ANALYZER_SUMMARY_SUPPORTED_HEADER
+        )
+        if summary_supported is not None:
+            if str(summary_supported).strip().lower() in _TRUTHY_STRINGS:
+                return ['summary']
+            return []
+
+        # The first summary-capable Registration implementation predates the
+        # discovery header. Probe it once. Old services either reject this
+        # request or return the Analyzer log again; summary validation makes
+        # either outcome non-fatal and prevents the log being saved as JSON.
+        return list(_CURRENT_OPTIONAL_ANALYZER_ARTIFACTS)
+
+    def _download_analyzer_artifact(self, work_dir, artifact_type,
+                                    include_artifact,
+                                    reserved_filenames):
+        """Download one Analyzer artifact without breaking mixed versions."""
+        params = {
+            "reg_id": self.registeration_id,
+            "debug_server_name": self.debug_server,
+        }
+        if include_artifact:
+            params['artifact'] = artifact_type
+
+        url = 'http://{}:5001/get_analyzer_log/'.format(self.debug_server)
+        response = None
+        response_headers = {}
+        partial_path = None
+        try:
+            self.logger.info(
+                "Requesting Analyzer artifact %s from %s",
+                artifact_type,
+                url,
+            )
+            response = requests_retry(
+                self.logger,
+                url,
+                'GET',
+                data=params,
+                timeout=300,
+                stream=True,
+            )
+            if response is None:
+                self.logger.info(
+                    "No response received for Analyzer artifact %s",
+                    artifact_type,
+                )
+                return None, response_headers
+
+            response_headers = response.headers.copy()
+            if response.status_code != 200:
+                log_method = (
+                    self.logger.warning
+                    if artifact_type == 'log' else
+                    self.logger.info
+                )
+                log_method(
+                    "Analyzer artifact %s is unavailable (HTTP %s)",
+                    artifact_type,
+                    response.status_code,
+                )
+                return None, response_headers
+
+            returned_type = response.headers.get(
+                ANALYZER_ARTIFACT_TYPE_HEADER
+            )
+            if (returned_type and
+                    str(returned_type).strip().lower() != artifact_type):
+                self.logger.info(
+                    "Ignoring Analyzer artifact %s returned for request %s",
+                    returned_type,
+                    artifact_type,
+                )
+                return None, response_headers
+
+            filename = self._analyzer_artifact_filename(
+                response,
+                artifact_type,
+            )
+            if filename in reserved_filenames:
+                self.logger.warning(
+                    "Ignoring duplicate Analyzer artifact filename %r",
+                    filename,
+                )
+                return None, response_headers
+
+            os.makedirs(work_dir, exist_ok=True)
+            output_path = os.path.join(work_dir, filename)
+            bytes_written = 0
+            with tempfile.NamedTemporaryFile(
+                    mode='wb',
+                    dir=work_dir,
+                    prefix='.analyzer-artifact-',
+                    suffix='.part',
+                    delete=False) as artifact_file:
+                partial_path = artifact_file.name
+                for chunk in response.iter_content(
+                        chunk_size=64 * 1024):
+                    if chunk:
+                        artifact_file.write(chunk)
+                        bytes_written += len(chunk)
+                artifact_file.flush()
+                os.fsync(artifact_file.fileno())
+
+            if bytes_written == 0:
+                raise ValueError("Registration returned an empty artifact")
+            if artifact_type == 'summary':
+                self._validate_analyzer_summary(partial_path)
+
+            self._set_downloaded_artifact_permissions(partial_path)
+            os.replace(partial_path, output_path)
+            partial_path = None
+            reserved_filenames.add(filename)
+            self.logger.info(
+                "Analyzer artifact %s saved at %s",
+                artifact_type,
+                output_path,
+            )
+            return output_path, response_headers
+        except Exception as err:
+            log_method = (
+                self.logger.warning
+                if artifact_type == 'log' else
+                self.logger.info
+            )
+            log_method(
+                "Unable to download Analyzer artifact %s: %s",
+                artifact_type,
+                err,
+            )
+            return None, response_headers
+        finally:
+            if partial_path and os.path.exists(partial_path):
+                try:
+                    os.remove(partial_path)
+                except OSError:
+                    pass
+            if response is not None:
+                try:
+                    response.close()
+                except Exception as err:
+                    self.logger.warning(
+                        "Could not close Analyzer response for %s: %s",
+                        artifact_type,
+                        err,
+                    )
+
+    def download_analyzer_artifacts(self, work_dir):
+        """Download the legacy log and supported optional Analyzer files."""
+        downloaded = {}
+        if not self.debug_server:
+            self.logger.info(
+                "debug_server name not provided in topology file; "
+                "Analyzer artifacts were not requested"
+            )
+            return downloaded
+        if not self.registeration_id:
+            self.logger.info(
+                "Registration ID is unavailable; Analyzer artifacts were "
+                "not requested"
+            )
+            return downloaded
+
+        reserved_filenames = set()
+        log_path, response_headers = self._download_analyzer_artifact(
+            work_dir=work_dir,
+            artifact_type='log',
+            include_artifact=False,
+            reserved_filenames=reserved_filenames,
+        )
+        if log_path:
+            downloaded['log'] = log_path
+
+        for artifact_type in self._advertised_analyzer_artifacts(
+                response_headers):
+            artifact_path, unused_headers = (
+                self._download_analyzer_artifact(
+                    work_dir=work_dir,
+                    artifact_type=artifact_type,
+                    include_artifact=True,
+                    reserved_filenames=reserved_filenames,
+                )
+            )
+            if artifact_path:
+                downloaded[artifact_type] = artifact_path
+        return downloaded
+
+    def analyzer_log(self, work_dir: str):
+        """Backward-compatible entry point used by existing callers."""
+        self.download_analyzer_artifacts(work_dir)
+
+    def _advertised_collector_artifacts(self, response):
+        """Return unique, safe artifact identifiers advertised by registration.
+
+        Older registration services do not return the discovery header.  In
+        that case this method returns an empty list and the legacy log-only
+        flow remains unchanged.
+        """
+        artifact_header = response.headers.get(COLLECTOR_ARTIFACTS_HEADER, '')
+        artifact_types = []
+        seen = set()
+        for value in str(artifact_header).split(','):
+            artifact_type = value.strip()
+            if not artifact_type or artifact_type in seen:
+                continue
+            if not _COLLECTOR_ARTIFACT_TYPE_RE.match(artifact_type):
+                self.logger.warning(
+                    "Ignoring invalid collector artifact identifier %r",
+                    artifact_type,
+                )
+                continue
+            if len(artifact_types) >= MAX_COLLECTOR_ARTIFACTS:
+                self.logger.warning(
+                    "Ignoring collector artifacts beyond the limit of %s",
+                    MAX_COLLECTOR_ARTIFACTS,
+                )
+                break
+            seen.add(artifact_type)
+            artifact_types.append(artifact_type)
+        return artifact_types
+
+    def _collector_artifact_filename(self, response):
+        """Extract and validate an attachment filename from a response."""
+        disposition = response.headers.get('Content-Disposition', '')
+        if not disposition:
+            return None
+
+        message = Message()
+        message['content-disposition'] = disposition
+        filename = message.get_filename()
+        if not filename:
+            return None
+        filename = str(filename).strip()
+        if (not filename or filename in ('.', '..') or
+                '/' in filename or '\\' in filename or
+                os.path.basename(filename) != filename):
+            self.logger.warning(
+                "Ignoring unsafe collector artifact filename %r", filename
+            )
+            return None
+        return filename
+
+    def _download_collector_artifact(self, url, params, headers,
+                                     artifact_type, work_dir,
+                                     reserved_filenames):
+        """Download one optional artifact advertised by registration.
+
+        Optional artifact failures are deliberately non-fatal so this client
+        continues to work with mixed service versions and partially available
+        artifacts.
+        """
+        artifact_response = None
+        partial_path = None
+        try:
+            artifact_params = dict(params)
+            artifact_params['artifact_type'] = artifact_type
+            self.logger.info(
+                "Downloading optional collector artifact %s", artifact_type
+            )
+            artifact_response = requests_retry(
+                self.logger,
+                url,
+                'POST',
+                json=artifact_params,
+                headers=headers,
+                timeout=300,
+                stream=True,
+            )
+            if (artifact_response is None or
+                    artifact_response.status_code != 200):
+                self.logger.info(
+                    "Optional collector artifact %s is unavailable",
+                    artifact_type,
+                )
+                return None
+
+            response_artifact_type = artifact_response.headers.get(
+                COLLECTOR_ARTIFACT_TYPE_HEADER
+            )
+            if response_artifact_type:
+                response_artifact_type = response_artifact_type.strip()
+            if (response_artifact_type and
+                    response_artifact_type != artifact_type):
+                self.logger.warning(
+                    "Ignoring collector artifact %s returned for request %s",
+                    response_artifact_type,
+                    artifact_type,
+                )
+                return None
+
+            filename = self._collector_artifact_filename(artifact_response)
+            if not filename:
+                self.logger.warning(
+                    "No valid filename received for collector artifact %s",
+                    artifact_type,
+                )
+                return None
+            if filename in reserved_filenames:
+                self.logger.warning(
+                    "Ignoring duplicate collector artifact filename %r",
+                    filename,
+                )
+                return None
+
+            artifact_path = os.path.join(work_dir, filename)
+            with tempfile.NamedTemporaryFile(
+                    mode='wb',
+                    dir=work_dir,
+                    prefix='.collector-artifact-',
+                    suffix='.part',
+                    delete=False) as artifact_file:
+                partial_path = artifact_file.name
+                for chunk in artifact_response.iter_content(
+                        chunk_size=64 * 1024):
+                    if chunk:
+                        artifact_file.write(chunk)
+                artifact_file.flush()
+                os.fsync(artifact_file.fileno())
+            self._set_downloaded_artifact_permissions(partial_path)
+            os.replace(partial_path, artifact_path)
+            partial_path = None
+            reserved_filenames.add(filename)
+            self.logger.info(
+                "Collector artifact %s saved at %s", filename, work_dir
+            )
+            return artifact_path
+        except Exception as err:
+            self.logger.warning(
+                "Optional collector artifact %s could not be downloaded: %s",
+                artifact_type,
+                err,
+            )
+            return None
+        finally:
+            if partial_path and os.path.exists(partial_path):
+                try:
+                    os.remove(partial_path)
+                except OSError:
+                    pass
+            if artifact_response is not None:
+                try:
+                    artifact_response.close()
+                except Exception as err:
+                    self.logger.warning(
+                        "Could not close collector artifact response for %s: %s",
+                        artifact_type,
+                        err,
+                    )
     
     def collector_log(self, params:dict, headers:dict, work_dir:str):
         """_summary_
@@ -938,7 +1401,17 @@ class DebugAdapter:
             url = f'http://{self.debug_server}:5001/uploadcollectorlogfile/'
             self.logger.info(f'Calling registration upload collector logfile service (url:{url})')
             response = requests_retry(self.logger, url, 'POST', json=params, headers=headers, timeout=300)
+            reg_id = params.get('reg_id')
+            reserved_filenames = set()
+            if reg_id:
+                reserved_filenames.update({
+                    '{}_debug_collection.log'.format(reg_id),
+                    '{}_debug_collection.json'.format(reg_id),
+                })
             if response is not None and response.status_code == 200:
+                response_filename = self._collector_artifact_filename(response)
+                if response_filename:
+                    reserved_filenames.add(response_filename)
                 if response.text:
                     summary_log = response.text
                     if '+'*120 in response.text:
@@ -958,6 +1431,17 @@ class DebugAdapter:
                             self.logger.info("Failed to convert collector logs to json")
                     else:
                         self.logger.info("No collector log file received")
+
+                for artifact_type in self._advertised_collector_artifacts(
+                        response):
+                    self._download_collector_artifact(
+                        url=url,
+                        params=params,
+                        headers=headers,
+                        artifact_type=artifact_type,
+                        work_dir=work_dir,
+                        reserved_filenames=reserved_filenames,
+                    )
 
             url = f'http://{self.debug_server}:5001/deleteuploadedfiles/'
             self.logger.info(f'Calling registration delete upload file service (url:{url}')
@@ -1008,5 +1492,3 @@ class ClsAdapter:
             self.logger.warning(f'Http call to cls service url:{url} is not successful')
             self.logger.warning("Error {}".format(e))
             return False
-
-
