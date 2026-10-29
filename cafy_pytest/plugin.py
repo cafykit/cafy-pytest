@@ -53,6 +53,26 @@ from .cafy_gta import TimeCollectorPlugin
 from .cafy_pdb import CafyPdb
 from .cafypdb_config import CafyPdb_Configs
 from .cls_debug import resolve_cls_configuration, parse_logstash_port_value
+from .netpilot import (
+    NETPILOT_HOLD_TIMEOUT_SECONDS,
+    NETPILOT_STATUS_POLL_SECONDS,
+    activate_runtime_context,
+    build_failure_payload,
+    deactivate_runtime_context,
+    invoke_failure_triage,
+    record_trigger_event,
+    wait_for_status,
+)
+from .netpilot_metrics import get_metrics
+from .netpilot_routing import (
+    ACTION_SKIP,
+    NetPilotRoutingContext,
+    SimilarityConfig,
+    route_failure,
+    store_failure_fingerprint,
+)
+from .netpilot_similarity import get_default_embedder
+from .netpilot_vectordb import open_vector_store
 
 
 collection_setup = Config()
@@ -297,6 +317,12 @@ def pytest_addoption(parser):
                     help='Variable to enable cafykit debug, default is False')
     group.addoption('--snapshot-enable', dest='snapshot_enable', action='store_true',
                     help='Variable to enable snapshot, default is False')
+
+    group = parser.getgroup("NetPilot CAFY Triage")
+    group.addoption("--netpilot-cafy-triage-enable", dest="netpilot_cafy_triage_enable", action="store_true",
+                    default=False, help="Launch NetPilot failure-time triage when a CAFY testcase fails.")
+    group.addoption("--netpilot-skip-similar", dest="netpilot_skip_similar", action="store_true",
+                    default=False, help="Skip NetPilot when a semantically similar failure was already triaged.")
 
     group = parser.getgroup('Script Arguments')
     group.addoption('--script-args', action='store', dest='script_args',
@@ -1107,6 +1133,17 @@ class EmailReport(object):
         self.cafypdb_user_action = ''
         self.first_failure_detected = False
         self.first_failed_testcase_name = None
+        self.netpilot_cafy_triage_enable = getattr(config_option, "netpilot_cafy_triage_enable", False)
+        self.netpilot_cafy_hold_timeout = NETPILOT_HOLD_TIMEOUT_SECONDS
+        self.netpilot_skip_similar = (
+            getattr(config_option, "netpilot_skip_similar", False)
+            or self.netpilot_cafy_triage_enable
+        )
+        self.netpilot_embedder = get_default_embedder() if self.netpilot_skip_similar else None
+        self.netpilot_vector_store = None
+        # V1 deduplication is intentionally process-local. Cross-process xdist
+        # coordination is outside the scope of deterministic routing.
+        self.netpilot_triggered_testcases = set()
         self.teardown_reporting_cases = 0
         self.teardown_reporting_total_seconds = 0.0
         self.teardown_reporting_parse_seconds = 0.0
@@ -1849,12 +1886,32 @@ class EmailReport(object):
                 break
 
     def pytest_runtest_protocol(self, item, nextitem):
-        # add to the hook
-        item.ihook.pytest_runtest_logstart(
-            nodeid=item.nodeid, location=item.location,
-        )
-        self.check_call_report(item, nextitem)
-        return True
+        runtime_context_token = None
+        try:
+            payload = build_failure_payload(
+                CafyLog,
+                node=item,
+                reg_dict=self.reg_dict,
+            )
+            runtime_context_token = activate_runtime_context(
+                payload,
+                timeout_seconds=self.netpilot_cafy_hold_timeout,
+                credentials_provider=self._get_topology_ssh_credentials,
+            )
+        except Exception as exc:
+            self.log.warning("NetPilot runtime context unavailable: %s", exc)
+
+        try:
+            item.ihook.pytest_runtest_logstart(
+                nodeid=item.nodeid, location=item.location,
+            )
+            self.check_call_report(item, nextitem)
+            return True
+        finally:
+            try:
+                deactivate_runtime_context(runtime_context_token)
+            except Exception as exc:
+                self.log.warning("Unable to clear NetPilot runtime context: %s", exc)
 
     def send_email_for_remote_debugging(self,server_ip_address,available_port, run_id='local_run'):
         '''
@@ -2205,6 +2262,7 @@ class EmailReport(object):
                 self.close_port(self.available_port)
         if report.failed and report.outcome == 'failed':
             CafyLog().fail(str(call.excinfo))
+            self._run_netpilot_failure_triage(node, call, report)
             self.exception_interact(node,call,report)
 
     def handle_all_exceptions(self, base_class_name, call_dict, exception_name,
@@ -2289,6 +2347,312 @@ class EmailReport(object):
             collector_failed_attribute_list.append(failed_attr)
             collector_exception_name_list.append(exception_name)
 
+    def _get_netpilot_scope_id(self):
+        reg_id = self.reg_dict.get("reg_id") if isinstance(self.reg_dict, dict) else None
+        if reg_id:
+            return str(reg_id)
+        work_dir = getattr(CafyLog, "work_dir", None)
+        if work_dir:
+            return "workdir:{}".format(os.path.basename(str(work_dir)))
+        return "unknown-scope"
+
+    def _get_netpilot_vector_store(self):
+        work_dir = getattr(CafyLog, "work_dir", None)
+        if not work_dir:
+            return None
+        if self.netpilot_vector_store is None:
+            self.netpilot_vector_store = open_vector_store(work_dir)
+        return self.netpilot_vector_store
+
+    def _build_netpilot_similarity_config(self):
+        if not self.netpilot_skip_similar:
+            return None
+        return SimilarityConfig(
+            embedder=self.netpilot_embedder,
+            vector_store=self._get_netpilot_vector_store(),
+            metrics=get_metrics(),
+        )
+
+    def _run_netpilot_failure_triage(self, node, call, report):
+        if not self.netpilot_cafy_triage_enable:
+            return
+
+        failure_stage = getattr(report, "when", None) or getattr(call, "when", None)
+        if failure_stage not in {"setup", "call", "teardown"}:
+            return
+
+        try:
+            decision = self._route_netpilot_failure(node, call, report)
+            if decision.action == ACTION_SKIP:
+                self.log.info(
+                    "NetPilot triage skipped: reason=%s similarity_match=%s "
+                    "similarity_score=%s matched_nodeid=%s",
+                    decision.reason,
+                    decision.similarity_match,
+                    decision.similarity_score,
+                    decision.matched_nodeid,
+                )
+                return
+            launch_result = self.invoke_netpilot_on_failed_testcase(
+                node,
+                call,
+                report,
+                decision=decision,
+            )
+            self.wait_for_netpilot_triage(launch_result)
+        except Exception as exc:
+            try:
+                self.log.warning("NetPilot CAFY triage failed open; continuing CAFY: %s", exc)
+            except Exception:
+                pass
+
+    def _route_netpilot_failure(self, node, call=None, report=None):
+        excinfo = getattr(call, "excinfo", None)
+        exception = getattr(excinfo, "value", None)
+        failure_stage = getattr(report, "when", None) or getattr(call, "when", None)
+        exception_message = None
+        if exception is not None:
+            try:
+                exception_message = str(exception)
+            except Exception:
+                exception_message = repr(exception)
+
+        decision = route_failure(
+            NetPilotRoutingContext(
+                failure_stage=failure_stage,
+                exception=exception,
+                test_path=getattr(node, "path", None),
+                nodeid=getattr(node, "nodeid", None) or getattr(report, "nodeid", None),
+                exception_type=type(exception).__name__ if exception is not None else None,
+                exception_message=exception_message,
+                scope_id=self._get_netpilot_scope_id(),
+                work_dir=getattr(CafyLog, "work_dir", None),
+            ),
+            similarity_config=self._build_netpilot_similarity_config(),
+        )
+        self.log.info(
+            "NetPilot routing decision: action=%s reason=%s feature_family=%s agent=%s "
+            "similarity_match=%s similarity_score=%s matched_nodeid=%s",
+            decision.action,
+            decision.reason,
+            decision.feature_family,
+            decision.agent,
+            decision.similarity_match,
+            decision.similarity_score,
+            decision.matched_nodeid,
+        )
+        return decision
+
+    def invoke_netpilot_on_failed_testcase(self, node, call=None, report=None, decision=None):
+        if decision is None:
+            decision = self._route_netpilot_failure(node, call, report)
+        if decision.action == ACTION_SKIP:
+            return None
+
+        payload = build_failure_payload(
+            CafyLog,
+            node=node,
+            call=call,
+            report=report,
+            reg_dict=self.reg_dict,
+        )
+        excinfo = getattr(call, "excinfo", None)
+        exception = getattr(excinfo, "value", None)
+        try:
+            exception_message = str(exception) if exception is not None else None
+        except Exception:
+            exception_message = repr(exception)
+        if not payload.get("test_file") and getattr(node, "path", None) is not None:
+            payload["test_file"] = str(node.path)
+        payload.update({
+            "exception_type": type(exception).__name__ if exception is not None else None,
+            "exception_message": exception_message,
+            "route_action": decision.action,
+            "route_reason": decision.reason,
+            "route_feature_family": decision.feature_family,
+            "route_agent": decision.agent,
+            "similarity_match": decision.similarity_match,
+            "similarity_score": decision.similarity_score,
+            "matched_nodeid": decision.matched_nodeid,
+        })
+        testcase_name = payload.get("testcase_name")
+        dedupe_key = payload.get("nodeid") or testcase_name
+
+        if not self.netpilot_cafy_triage_enable:
+            record_trigger_event(
+                payload,
+                decision="disabled",
+                trigger_enabled=False,
+                dedupe_key=dedupe_key,
+            )
+            return None
+
+        if dedupe_key in self.netpilot_triggered_testcases:
+            record_trigger_event(
+                payload,
+                decision="duplicate",
+                trigger_enabled=True,
+                dedupe_key=dedupe_key,
+            )
+            return None
+        self.netpilot_triggered_testcases.add(dedupe_key)
+
+        if self.netpilot_skip_similar:
+            stored = self._store_netpilot_failure_fingerprint(decision, payload)
+            if stored is not None:
+                self.log.info("NetPilot failure fingerprint stored for similarity skip")
+
+        try:
+            ssh_username, ssh_password = self._get_topology_ssh_credentials()
+            live_capture_enabled = bool(ssh_username and ssh_password)
+            result = invoke_failure_triage(
+                payload,
+                netpilot_agent=decision.agent,
+                ssh_username=ssh_username,
+                ssh_password=ssh_password,
+                live_capture_enabled=live_capture_enabled,
+                timeout_seconds=self.netpilot_cafy_hold_timeout,
+            )
+
+            launched_value = getattr(result, "launched", None)
+            launched = (
+                bool(launched_value)
+                if launched_value is not None
+                else bool(getattr(result, "status_file", None))
+            )
+            record_trigger_event(
+                payload,
+                decision="launched" if launched else "launch_failed",
+                trigger_enabled=True,
+                dedupe_key=dedupe_key,
+                session_id=getattr(result, "session_id", None),
+                status_file=getattr(result, "status_file", None),
+                error=getattr(result, "error", None),
+            )
+
+            if launched:
+                self.log.info("NetPilot CAFY triage launch succeeded")
+
+            if live_capture_enabled:
+                self.log.info("NetPilot CAFY triage launched with live capture enabled")
+            else:
+                self.log.info("NetPilot CAFY triage launched in artifact-only mode")
+            return result
+        except Exception as exc:
+            record_trigger_event(
+                payload,
+                decision="launch_failed",
+                trigger_enabled=True,
+                dedupe_key=dedupe_key,
+                error="{}: {}".format(type(exc).__name__, exc),
+            )
+            self.log.warning("NetPilot CAFY triage launch failed; continuing CAFY: %s", exc)
+            return None
+
+    def _store_netpilot_failure_fingerprint(self, decision, payload):
+        fingerprint = decision.fingerprint
+        if fingerprint is None:
+            return None
+
+        embedding = None
+        if self.netpilot_embedder:
+            embedding = self.netpilot_embedder.embed(fingerprint.normalized_text)
+            if embedding is None:
+                get_metrics().record_embedding_failure()
+
+        return store_failure_fingerprint(
+            work_dir=payload.get("work_dir"),
+            fingerprint=fingerprint,
+            embedding=embedding,
+            agent=decision.agent,
+            scope_id=self._get_netpilot_scope_id(),
+            nodeid=payload.get("nodeid"),
+            vector_store=self._get_netpilot_vector_store(),
+        )
+
+    def _get_topology_ssh_credentials(self):
+        topology_file = getattr(CafyLog, "topology_file", None)
+        if not topology_file:
+            return None, None
+
+        try:
+            topo_obj = Topology(topology_file)
+        except Exception as exc:
+            self.log.info("NetPilot topology load failed: %s", exc)
+            return None, None
+
+        if hasattr(topo_obj, "get_credential"):
+            try:
+                cred_obj = topo_obj.get_credential("default")
+                username = getattr(cred_obj, "username", None)
+                password = getattr(cred_obj, "password", None)
+                if username and password:
+                    self.log.info("NetPilot credentials resolved from topology.get_credential()")
+                    return username, password
+            except Exception as exc:
+                self.log.info("NetPilot get_credential('default') failed: %s", exc)
+
+        routers = None
+        for getter in ("get_routers", "get_devices"):
+            if not hasattr(topo_obj, getter):
+                continue
+            try:
+                candidate = getattr(topo_obj, getter)()
+            except Exception as exc:
+                self.log.info("NetPilot topology getter %s failed: %s", getter, exc)
+                continue
+            if isinstance(candidate, dict) and candidate:
+                routers = candidate
+                break
+
+        if not routers:
+            self.log.info("NetPilot credentials not found in topology")
+            return None, None
+
+        for router_name, router_obj in routers.items():
+            handle_obj = None
+            for handle_attr in ("get_cli_handle", "vty", "cli"):
+                if handle_obj is not None:
+                    break
+                if handle_attr == "get_cli_handle" and hasattr(router_obj, handle_attr):
+                    try:
+                        handle_obj = router_obj.get_cli_handle()
+                    except Exception as exc:
+                        self.log.info("NetPilot router %s get_cli_handle() failed: %s", router_name, exc)
+                elif handle_attr in ("vty", "cli") and hasattr(router_obj, handle_attr):
+                    try:
+                        handle_obj = getattr(router_obj, handle_attr)
+                    except Exception as exc:
+                        self.log.info("NetPilot router %s %s access failed: %s", router_name, handle_attr, exc)
+
+            username = getattr(handle_obj, "username", None)
+            password = getattr(handle_obj, "password", None)
+            if username and password:
+                self.log.info("NetPilot credentials resolved from router %s handle", router_name)
+                return username, password
+
+        self.log.info("NetPilot credentials not found in any router handle")
+        return None, None
+
+    def wait_for_netpilot_triage(self, launch_result):
+        if not launch_result or not getattr(launch_result, "status_file", None):
+            return
+
+        def on_status(status, _payload):
+            self.log.info("NetPilot CAFY triage status: %s", status)
+
+        result = wait_for_status(
+            launch_result.status_file,
+            timeout_seconds=NETPILOT_HOLD_TIMEOUT_SECONDS,
+            poll_seconds=NETPILOT_STATUS_POLL_SECONDS,
+            on_status=on_status,
+        )
+
+        status = result.get("status")
+        if status == "hold_timeout":
+            self.log.info("NetPilot CAFY triage hold timeout reached; continuing CAFY")
+        elif status == "status_unavailable":
+            self.log.warning("NetPilot CAFY triage status unavailable; continuing CAFY: %s", result.get("error"))
 
     def invoke_reg_on_failed_testcase(self, params, headers):
         """
@@ -2500,6 +2864,8 @@ class EmailReport(object):
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_sessionfinish(self):
+        if getattr(self, "netpilot_cafy_triage_enable", False):
+            self.log.info("NetPilot metrics summary: %s", get_metrics().summary())
         self.log.info(
             "Cumulative teardown reporting across %s testcases: total=%.3fs parse=%.3fs render=%.3fs attach=%.3fs",
             self.teardown_reporting_cases,
