@@ -1,6 +1,7 @@
+import os
 class CafyGTA_Configs:
     GTA_URL = 'https://cafy3.cisco.com/api/gta'
-    API_KEY = 'f912594816b83760756f3cfdcb32f08bdf3f9b6fe46183323ec0aaf0e4afe25b'
+    API_KEY = os.environ.get("API_KEY", None)
     @staticmethod
     def get_gta_url():
         """
