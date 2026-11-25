@@ -2204,7 +2204,13 @@ class EmailReport(object):
             finally:
                 self.close_port(self.available_port)
         if report.failed and report.outcome == 'failed':
-            CafyLog().fail(str(call.excinfo))
+            exception = getattr(call.excinfo, "value", None)
+            if exception is not None and exception.__class__.__name__ == "TgenCheckTrafficError":
+                failure_message = ("TgenCheckTrafficError: VerifyTraffic failed; "
+                                   "see Allure/RC logs for traffic details.")
+            else:
+                failure_message = str(call.excinfo)
+            CafyLog().fail(failure_message)
             self.exception_interact(node,call,report)
 
     def handle_all_exceptions(self, base_class_name, call_dict, exception_name,
